@@ -1,0 +1,651 @@
+#!/usr/bin/env python3
+"""
+cc-sessions.py — Claude Code session overview / resume helper.
+
+Scans ~/.claude/projects/**/*.jsonl and renders recent sessions with
+opening and last user prompts so you can identify which session is which
+and resume it via `claude --resume <session_id>`.
+
+Standard library only (no external deps).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Iterable
+
+PROJ_ROOT = os.path.expanduser("~/.claude/projects")
+
+# Pattern for "/branch" forked sessions. The child session's jsonl contains
+# a system/local_command record with content like:
+#   "<local-command-stdout>Branched conversation. You are now in the branch.
+#    To resume the original: claude -r <parent-uuid></local-command-stdout>"
+BRANCH_RE = re.compile(
+    r"Branched conversation.*?claude -r ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+    re.DOTALL,
+)
+
+# Plan files live under ~/.claude/plans/<name>.md. Claude Code writes these
+# during plan mode. Their first H1 line is usually a meaningful title we can
+# use as a session label.
+PLAN_PATH_RE = re.compile(r"/\.claude/plans/[a-z0-9-]+\.md$")
+PLAN_DIR = os.path.expanduser("~/.claude/plans")
+
+# Prefixes to strip from plan H1 titles (cosmetic normalization).
+_PLAN_TITLE_PREFIXES = (
+    "Plan:",
+    "plan:",
+    "Research Plan:",
+    "[OLD]",
+    "[WIP]",
+    "[DRAFT]",
+)
+
+# Cache plan titles so identical plan files aren't re-read across sessions.
+_plan_title_cache: dict[str, str | None] = {}
+
+
+def read_plan_title(path: str) -> str | None:
+    """Read the first meaningful heading line from a plan markdown file.
+
+    Returns a normalized short title, or None if the file is missing / empty /
+    has no heading. Results are cached per-path so repeated lookups are free.
+    """
+    if path in _plan_title_cache:
+        return _plan_title_cache[path]
+
+    title: str | None = None
+    try:
+        with open(path, "r", errors="replace") as fp:
+            for _ in range(20):  # cap lines scanned
+                line = fp.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith("#"):
+                    # Strip leading '#' chars and whitespace
+                    text = stripped.lstrip("#").strip()
+                    # Strip cosmetic prefixes
+                    for prefix in _PLAN_TITLE_PREFIXES:
+                        if text.startswith(prefix):
+                            text = text[len(prefix):].strip()
+                    # Cap length
+                    if len(text) > 60:
+                        text = text[:59] + "…"
+                    title = text or None
+                    break
+    except OSError:
+        title = None
+
+    _plan_title_cache[path] = title
+    return title
+
+# User prompts starting with any of these prefixes are system/hook injected,
+# not real user intent — filter them out.
+FAKE_PROMPT_PREFIXES = (
+    "<local-command",
+    "<command-",
+    "<system-reminder",
+    "<ide_opened_file",
+    "Caveat:",
+    "[Request interrupted",
+    "Base directory for this skill",
+)
+
+
+@dataclass
+class Session:
+    path: str
+    first_ts: str | None = None
+    last_ts: str | None = None
+    cwd: str | None = None
+    branch: str | None = None
+    asst_count: int = 0
+    prompts: list[tuple[str | None, str]] = field(default_factory=list)
+    forked_from: str | None = None  # parent session UUID if this is a /branch fork
+    plan_title: str | None = None  # H1 title of the most recent plan file touched
+    plan_path: str | None = None   # path to that plan file (for reference)
+    # Token usage (summed across all assistant turns)
+    total_input: int = 0       # input_tokens (non-cache)
+    total_output: int = 0      # output_tokens
+    cache_read: int = 0        # cache_read_input_tokens
+    cache_create: int = 0      # cache_creation_input_tokens
+    turn_count: int = 0        # turns with usage data (for avg calculation)
+
+    @property
+    def session_id(self) -> str:
+        return os.path.basename(self.path).replace(".jsonl", "")
+
+    @property
+    def project_name(self) -> str:
+        """Decode the encoded project dir into a readable name.
+
+        Input dirs look like `-Users-jintaesong-Desktop-Home-waddle-code`.
+        We strip known path prefixes to show just the meaningful tail.
+        """
+        d = os.path.basename(os.path.dirname(self.path))
+        d = d.lstrip("-")
+        # Strip user home and common desktop roots
+        for prefix in (
+            "Users-jintaesong-Desktop-Home-",
+            "Users-jintaesong-Desktop-",
+            "Users-jintaesong-Library-Mobile-Documents-iCloud-md-obsidian-Documents-",
+            "Users-jintaesong-",
+        ):
+            if d.startswith(prefix):
+                d = d[len(prefix):]
+                break
+        return d or "(unknown)"
+
+    @property
+    def sort_key(self) -> str:
+        """Sort by last real user prompt timestamp, fallback to last_ts."""
+        if self.prompts and self.prompts[-1][0]:
+            return self.prompts[-1][0]
+        return self.last_ts or ""
+
+
+# ---------- parsing ----------
+
+
+def is_real_prompt(txt: object) -> bool:
+    if not isinstance(txt, str):
+        return False
+    s = txt.strip()
+    if not s:
+        return False
+    return not any(s.startswith(p) for p in FAKE_PROMPT_PREFIXES)
+
+
+def extract_user_text(content: object) -> str:
+    """A user message's content can be a string or a list of content blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            b.get("text", "")
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        ]
+        return "\n".join(parts)
+    return ""
+
+
+def parse_session(path: str) -> Session | None:
+    s = Session(path=path)
+    try:
+        with open(path, "r", errors="replace") as fp:
+            for line in fp:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                t = r.get("type")
+                ts = r.get("timestamp") or (r.get("snapshot") or {}).get("timestamp")
+                if ts:
+                    if not s.first_ts:
+                        s.first_ts = ts
+                    s.last_ts = ts
+                if t == "system":
+                    if not s.cwd:
+                        s.cwd = r.get("cwd")
+                        s.branch = r.get("gitBranch")
+                    # Detect /branch forks: subtype=local_command with "Branched conversation"
+                    if s.forked_from is None and r.get("subtype") == "local_command":
+                        content = r.get("content") or ""
+                        if "Branched conversation" in content:
+                            m = BRANCH_RE.search(content)
+                            if m:
+                                s.forked_from = m.group(1)
+                if t in ("message", "assistant"):
+                    msg = r.get("message", {}) or {}
+                    role = msg.get("role") or ("assistant" if t == "assistant" else None)
+                    if role == "assistant":
+                        s.asst_count += 1
+                        usage = msg.get("usage")
+                        if usage:
+                            s.total_input += usage.get("input_tokens", 0)
+                            s.total_output += usage.get("output_tokens", 0)
+                            s.cache_read += usage.get("cache_read_input_tokens", 0)
+                            s.cache_create += usage.get("cache_creation_input_tokens", 0)
+                            s.turn_count += 1
+                    # Detect plan file Writes/Edits so we can use the plan's H1
+                    # as a session label. The most recent plan wins.
+                    content = msg.get("content")
+                    if isinstance(content, list):
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") != "tool_use":
+                                continue
+                            if block.get("name") not in ("Write", "Edit", "MultiEdit"):
+                                continue
+                            fp_ = (block.get("input") or {}).get("file_path")
+                            if isinstance(fp_, str) and PLAN_PATH_RE.search(fp_):
+                                s.plan_path = fp_  # last-write-wins
+                if t == "user":
+                    text = extract_user_text((r.get("message") or {}).get("content"))
+                    if is_real_prompt(text):
+                        s.prompts.append((r.get("timestamp"), text.strip()))
+    except OSError:
+        return None
+
+    # Resolve plan title if we found a plan file path during parsing.
+    if s.plan_path:
+        s.plan_title = read_plan_title(s.plan_path)
+
+    return s
+
+
+def find_session_files() -> Iterable[str]:
+    """Yield top-level session jsonl paths, skipping subagent directories."""
+    for root, dirs, files in os.walk(PROJ_ROOT):
+        # Skip subagent subfolders entirely
+        if "subagents" in root.split(os.sep):
+            continue
+        for fn in files:
+            if fn.endswith(".jsonl"):
+                yield os.path.join(root, fn)
+
+
+# ---------- filters ----------
+
+
+def parse_iso(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def session_touches_date(s: Session, day: datetime) -> bool:
+    """Return True if the session had any activity on the given local-date."""
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    end = start.replace(hour=23, minute=59, second=59)
+    # Range-overlap: session overlaps [start, end]?
+    fs = parse_iso(s.first_ts)
+    ls = parse_iso(s.last_ts)
+    if not fs and not ls:
+        return False
+    fs = fs or ls
+    ls = ls or fs
+    return not (ls < start or fs > end)
+
+
+# ---------- rendering ----------
+
+
+def fmt_tokens(n: int) -> str:
+    """Format token count as compact K string with commas. 285120→'285K', 10014000→'10,014K', 0→'—'."""
+    if n <= 0:
+        return "—"
+    if n >= 10_000:
+        return f"{n // 1000:,}K"
+    if n >= 1_000:
+        return f"{n / 1000:.1f}K"
+    return str(n)
+
+
+def fmt_ts(ts: str | None, include_year: bool = True) -> str:
+    """Format ISO8601 → 'YYYY-MM-DD HH:MM:SS' (or 'MM-DD HH:MM:SS' if year dropped)."""
+    if not ts:
+        return "?"
+    s = ts.replace("T", " ")[:19]
+    if not include_year and len(s) >= 10 and s[4] == "-":
+        # Drop 'YYYY-' prefix
+        return s[5:]
+    return s
+
+
+def fmt_duration(a: str | None, b: str | None) -> str:
+    da, db = parse_iso(a), parse_iso(b)
+    if not da or not db:
+        return "?"
+    mins = int((db - da).total_seconds() / 60)
+    if mins < 1:
+        return "<1min"
+    if mins < 60:
+        return f"{mins}min"
+    return f"{mins // 60}h{mins % 60}m"
+
+
+def trim(txt: str, limit: int) -> str:
+    """Collapse whitespace and truncate to `limit` chars, appending `…` if cut."""
+    one = txt.replace("\n", " ").replace("\r", " ")
+    if len(one) <= limit:
+        return one
+    # Reserve 1 char for the ellipsis so total visible width stays == limit
+    return one[: max(0, limit - 1)] + "…"
+
+
+def _is_wide_char(ch: str) -> bool:
+    """Return True if the codepoint is typically rendered at 2 columns wide
+    in monospaced terminals (CJK, Hangul, full-width punctuation, etc.)."""
+    o = ord(ch)
+    return (
+        0x1100 <= o <= 0x115F       # Hangul Jamo
+        or 0x2E80 <= o <= 0x303E    # CJK radicals, punctuation
+        or 0x3041 <= o <= 0x33FF    # Hiragana/Katakana/CJK symbols
+        or 0x3400 <= o <= 0x4DBF    # CJK extension A
+        or 0x4E00 <= o <= 0x9FFF    # CJK unified ideographs
+        or 0xA000 <= o <= 0xA4CF    # Yi syllables
+        or 0xAC00 <= o <= 0xD7A3    # Hangul syllables
+        or 0xF900 <= o <= 0xFAFF    # CJK compatibility ideographs
+        or 0xFE30 <= o <= 0xFE4F    # CJK compat forms
+        or 0xFF00 <= o <= 0xFF60    # Full-width forms
+        or 0xFFE0 <= o <= 0xFFE6
+    )
+
+
+def display_width(s: str) -> int:
+    """Count visible terminal columns (CJK=2, ASCII=1)."""
+    return sum(2 if _is_wide_char(c) else 1 for c in s)
+
+
+def trim_display(txt: str, max_w: int) -> str:
+    """Truncate to max display columns (CJK-aware), appending `…` if cut."""
+    one = txt.replace("\n", " ").replace("\r", " ")
+    if display_width(one) <= max_w:
+        return one
+    out: list[str] = []
+    w = 0
+    for ch in one:
+        cw = 2 if _is_wide_char(ch) else 1
+        # Reserve 1 column for the ellipsis
+        if w + cw > max_w - 1:
+            break
+        out.append(ch)
+        w += cw
+    return "".join(out) + "…"
+
+
+def pad_display(s: str, target_w: int) -> str:
+    """Right-pad to target display width with spaces (CJK-aware)."""
+    w = display_width(s)
+    if w >= target_w:
+        return s
+    return s + (" " * (target_w - w))
+
+
+def volume_marker(total_msgs: int) -> str:
+    """1-char marker indicating conversation weight (fixed width, no alignment drift).
+
+    Thresholds chosen for scannability:
+      < 20  : blank        — quick peek / short chat
+      20-49 : · middle dot — medium
+      50-149: ● full circle — heavy
+      150+  : ◉ circled dot — very heavy
+    """
+    if total_msgs < 20:
+        return " "
+    if total_msgs < 50:
+        return "·"
+    if total_msgs < 150:
+        return "●"
+    return "◉"
+
+
+FIRST_PROMPT_WIDTH = 80  # display columns (CJK-aware) for first_prompt column
+PLAN_TITLE_WIDTH = 50    # max display columns for plan title column
+
+
+def render_index(sessions: list[Session]) -> str:
+    """One-line per session — compact table for quick scanning.
+
+    Session id is shown as the 8-char prefix only. Full UUID lives in the
+    full box (--full) and JSON output. Resume is keyboard-driven via
+    cc-resume, so the list never needs the copyable full id.
+    """
+    lines = []
+    header = (
+        f"{'#':>3}  {'last activity':<14}  {'project':<28}  "
+        f"{'v':<1} {'f':<1}  {'in(tok)':>9}  {'sid':<8}  "
+        f"{pad_display('first prompt', FIRST_PROMPT_WIDTH)}  plan title"
+    )
+    lines.append(header)
+    lines.append("─" * max(160, len(header)))
+    for i, s in enumerate(sessions, 1):
+        sid8 = s.session_id[:8]
+        proj = s.project_name[:28]
+        last = fmt_ts(s.last_ts, include_year=False)
+        vol = volume_marker(s.asst_count + len(s.prompts))
+        fork = "↳" if s.forked_from else " "
+        first_raw = s.prompts[0][1] if s.prompts else ""
+        first_col = pad_display(
+            trim_display(first_raw, FIRST_PROMPT_WIDTH), FIRST_PROMPT_WIDTH
+        )
+        total_in = s.total_input + s.cache_read + s.cache_create
+        tok_col = fmt_tokens(total_in)
+        plan_col = trim_display(s.plan_title, PLAN_TITLE_WIDTH) if s.plan_title else ""
+        lines.append(
+            f"{i:>3}  {last:<14}  {proj:<28}  {vol:<1} {fork:<1}  "
+            f"{tok_col:>9}  {sid8:<8}  {first_col}  {plan_col}"
+        )
+    lines.append(
+        f"\n{len(sessions)} session(s) total.  "
+        f"v=volume(·/●/◉)  f=forked(↳)  (full sid in --full / --json)"
+    )
+    return "\n".join(lines)
+
+
+def render_full_box(s: Session, limit: int = 350) -> str:
+    """Detailed box per session — opening 3 + last 2 prompts."""
+    width = 65
+    bar = "─" * width
+    lines = [f"┌{bar}"]
+    lines.append(f"│ 📁 project:     {s.project_name}")
+    lines.append(f"│ session id:     {s.session_id}")
+    lines.append(f"│ started:        {fmt_ts(s.first_ts)}")
+    lines.append(
+        f"│ last activity:  {fmt_ts(s.last_ts)}    ({fmt_duration(s.first_ts, s.last_ts)})"
+    )
+    lines.append(f"│ cwd:            {s.cwd or '(none)'}")
+    lines.append(f"│ branch:         {s.branch or '(none)'}")
+    lines.append(
+        f"│ messages:       assistant {s.asst_count} / user {len(s.prompts)}"
+    )
+    if s.forked_from:
+        lines.append(f"│ forked from:    {s.forked_from}")
+    if s.plan_title:
+        lines.append(f"│ plan:           {s.plan_title}")
+    # Token usage breakdown
+    if s.turn_count > 0:
+        total_in = s.total_input + s.cache_read + s.cache_create
+        cache_hit = (
+            round(s.cache_read / total_in * 100) if total_in > 0 else 0
+        )
+        avg_in = total_in // s.turn_count
+        lines.append(f"│ ── tokens ──")
+        lines.append(f"│ input:          {total_in:>10,}    (cache hit {cache_hit}%)")
+        lines.append(f"│ output:         {s.total_output:>10,}")
+        lines.append(
+            f"│ cache:          {fmt_tokens(s.cache_read)} read / {fmt_tokens(s.cache_create)} created"
+        )
+        lines.append(f"│ avg input/turn: {avg_in:>10,}")
+    lines.append(f"├{bar}")
+    lines.append("│ opening prompts")
+    opening = s.prompts[:3]
+    for i, (_, txt) in enumerate(opening, 1):
+        lines.append(f"│  [{i}] {trim(txt, limit)}")
+    # Dedupe: if session is short, last prompts overlap with opening.
+    opening_ids = {id(p) for p in opening}
+    last_two = [p for p in s.prompts[-2:] if id(p) not in opening_ids]
+    if last_two:
+        lines.append("│")
+        lines.append("│ last prompts")
+        for i, (_, txt) in enumerate(last_two, 1):
+            lines.append(f"│  [{i}] {trim(txt, limit)}")
+    lines.append(f"└{bar}")
+    return "\n".join(lines)
+
+
+def render_full(sessions: list[Session], n: int, limit: int = 350) -> str:
+    picked = sessions[:n]
+    parts = [render_full_box(s, limit=limit) for s in picked]
+    parts.append(
+        f"\nShowing top {len(picked)} of {len(sessions)} session(s). "
+        f"Use --full N to show more, or --limit to narrow."
+    )
+    return "\n\n".join(parts)
+
+
+def render_json(sessions: list[Session]) -> str:
+    out = []
+    for s in sessions:
+        out.append(
+            {
+                "session_id": s.session_id,
+                "path": s.path,
+                "project": s.project_name,
+                "first_ts": s.first_ts,
+                "last_ts": s.last_ts,
+                "cwd": s.cwd,
+                "branch": s.branch,
+                "asst_count": s.asst_count,
+                "user_count": len(s.prompts),
+                "forked_from": s.forked_from,
+                "plan_title": s.plan_title,
+                "plan_path": s.plan_path,
+                "prompts": [{"ts": t, "text": x} for t, x in s.prompts],
+                "tokens": {
+                    "total_input": s.total_input + s.cache_read + s.cache_create,
+                    "total_output": s.total_output,
+                    "cache_read": s.cache_read,
+                    "cache_create": s.cache_create,
+                    "turn_count": s.turn_count,
+                },
+            }
+        )
+    return json.dumps(out, ensure_ascii=False, indent=2)
+
+
+# ---------- main ----------
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="cc-recent",
+        description="List recent Claude Code sessions with opening/last prompts.",
+    )
+    p.add_argument(
+        "--days",
+        type=int,
+        default=3,
+        help="Show sessions from the last N days (default: 3).",
+    )
+    p.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Show sessions that had any activity on YYYY-MM-DD (local TZ). "
+        "Overrides --days and --all.",
+    )
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="No time filter — scan all sessions.",
+    )
+    p.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Substring match on project name.",
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Show only the top N sessions (after sorting).",
+    )
+    p.add_argument(
+        "--full",
+        nargs="?",
+        const=5,
+        type=int,
+        default=None,
+        help="Render top N sessions as detailed boxes (default N=5).",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON (for piping into fzf/jq/etc).",
+    )
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_arg_parser().parse_args(argv)
+
+    # --- determine time window ---
+    now = time.time()
+    target_day: datetime | None = None
+    window_start: float | None = None
+
+    if args.date:
+        try:
+            target_day = datetime.strptime(args.date, "%Y-%m-%d").astimezone()
+        except ValueError:
+            print(f"error: --date must be YYYY-MM-DD, got {args.date!r}", file=sys.stderr)
+            return 2
+    elif args.all:
+        window_start = None
+    else:
+        window_start = now - args.days * 86400
+
+    # --- gather candidate files (mtime pre-filter for speed) ---
+    candidates: list[str] = []
+    for path in find_session_files():
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        if window_start is not None and mtime < window_start and not target_day:
+            continue
+        candidates.append(path)
+
+    # --- parse ---
+    sessions: list[Session] = []
+    for path in candidates:
+        s = parse_session(path)
+        if s and s.prompts:
+            sessions.append(s)
+
+    # --- apply precise date filter (if any) ---
+    if target_day:
+        sessions = [s for s in sessions if session_touches_date(s, target_day)]
+
+    # --- project filter ---
+    if args.project:
+        q = args.project.lower()
+        sessions = [s for s in sessions if q in s.project_name.lower()]
+
+    # --- sort by most recent real activity first ---
+    sessions.sort(key=lambda s: s.sort_key, reverse=True)
+
+    # --- limit ---
+    if args.limit is not None and args.limit >= 0:
+        sessions = sessions[: args.limit]
+
+    # --- render ---
+    if args.json:
+        print(render_json(sessions))
+    elif args.full is not None:
+        print(render_full(sessions, n=args.full, limit=350))
+    else:
+        print(render_index(sessions))
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
