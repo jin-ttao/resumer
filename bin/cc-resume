@@ -115,6 +115,9 @@ def render_box(s: dict) -> str:
     )
     if s.get("forked_from"):
         lines.append(f"│ forked from:    {s.get('forked_from')}")
+    title = s.get("custom_title") or s.get("ai_title")
+    if title:
+        lines.append(f"│ title:          {title}")
     if s.get("plan_title"):
         lines.append(f"│ plan:           {s.get('plan_title')}")
     # Token usage breakdown
@@ -230,9 +233,14 @@ def main() -> int:
             # column, aligned via CJK-aware padding + visible │ separator.
             first_raw = prompts[0].get("text", "") if prompts else ""
             first_col = pad_display(trim_display(first_raw, 80), 80)
-            plan_title = s.get("plan_title") or ""
-            plan_col = trim_display(plan_title, 50) if plan_title else ""
-            label = f"{first_col}  {plan_col}" if plan_col else first_col
+            aux_text = (
+                s.get("custom_title")
+                or s.get("ai_title")
+                or s.get("plan_title")
+                or ""
+            )
+            aux_col = trim_display(aux_text, 50) if aux_text else ""
+            label = f"{first_col}  {aux_col}" if aux_col else first_col
             lines.append(f"{last}\t{proj:<25}\t{markers}\t{tok_col}\t{sid}\t{cwd}\t{label}")
         fzf_input = "\n".join(lines)
 

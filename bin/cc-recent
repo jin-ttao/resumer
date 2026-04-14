@@ -113,6 +113,8 @@ class Session:
     forked_from: str | None = None  # parent session UUID if this is a /branch fork
     plan_title: str | None = None  # H1 title of the most recent plan file touched
     plan_path: str | None = None   # path to that plan file (for reference)
+    custom_title: str | None = None  # /rename custom title (last-wins)
+    ai_title: str | None = None      # auto-generated ai title (last-wins)
     # Token usage (summed across all assistant turns)
     total_input: int = 0       # input_tokens (non-cache)
     total_output: int = 0      # output_tokens
@@ -235,6 +237,14 @@ def parse_session(path: str) -> Session | None:
                     text = extract_user_text((r.get("message") or {}).get("content"))
                     if is_real_prompt(text):
                         s.prompts.append((r.get("timestamp"), text.strip()))
+                elif t == "custom-title":
+                    ct = r.get("customTitle")
+                    if isinstance(ct, str) and ct.strip():
+                        s.custom_title = ct.strip()
+                elif t == "ai-title":
+                    at = r.get("aiTitle")
+                    if isinstance(at, str) and at.strip():
+                        s.ai_title = at.strip()
     except OSError:
         return None
 
@@ -456,6 +466,9 @@ def render_full_box(s: Session, limit: int = 350) -> str:
     )
     if s.forked_from:
         lines.append(f"│ forked from:    {s.forked_from}")
+    title = s.custom_title or s.ai_title
+    if title:
+        lines.append(f"│ title:          {title}")
     if s.plan_title:
         lines.append(f"│ plan:           {s.plan_title}")
     # Token usage breakdown
@@ -516,6 +529,8 @@ def render_json(sessions: list[Session]) -> str:
                 "forked_from": s.forked_from,
                 "plan_title": s.plan_title,
                 "plan_path": s.plan_path,
+                "custom_title": s.custom_title,
+                "ai_title": s.ai_title,
                 "prompts": [{"ts": t, "text": x} for t, x in s.prompts],
                 "tokens": {
                     "total_input": s.total_input + s.cache_read + s.cache_create,
