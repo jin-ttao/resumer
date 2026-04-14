@@ -33,6 +33,23 @@ cc-resume                    # interactive picker
 cc-resume --days 7           # pass-through args to cc-recent
 ```
 
+## QA
+
+Automated regression suite for `cc-resume` — driven by `tmux send-keys` / `capture-pane`. Verifies picker render, navigation, search filtering, select→exec, Esc cancel, and argument pass-through. `claude` is mocked so no real session is started.
+
+```bash
+./tests/run-qa.sh              # all scenarios + demo GIF
+./tests/run-qa.sh --no-vhs     # skip VHS GIF (faster, no deps)
+./tests/run-qa.sh --only 04    # single scenario
+```
+
+Pass ⇒ exit 0. Output artifacts (mock logs, `demo.gif`) go to `tests/output/` (gitignored).
+
+### QA dependencies
+
+- `tmux`, `fzf`, `python3` (required)
+- `vhs` (optional, for demo GIF): `brew install vhs`
+
 ## Roadmap
 
 - [ ] `codex-recent` / `codex-resume`
