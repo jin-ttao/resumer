@@ -16,7 +16,12 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCENARIO_DIR="$REPO_ROOT/tests/assertions"
 OUTPUT_DIR="$REPO_ROOT/tests/output"
-TAPE="$REPO_ROOT/tests/demo.tape"
+# Tapes run in listed order. Add more tape paths here to grow coverage;
+# each one produces its own GIF via the Output directive inside the tape.
+TAPES=(
+  "$REPO_ROOT/tests/demo.tape"           # legacy cc-resume demo
+  "$REPO_ROOT/tests/resumer-demo.tape"   # unified resumer demo
+)
 mkdir -p "$OUTPUT_DIR"
 
 # --- args ---
@@ -83,23 +88,33 @@ for s in "${scenarios[@]}"; do
   fi
 done
 
-# --- VHS demo ---
+# --- VHS demos ---
 if (( RUN_VHS )); then
-  echo ""
-  echo "[VHS] generating demo.gif"
-  echo "────────────────────────────────────────────────────────"
   cd "$REPO_ROOT"
-  if vhs "$TAPE" 2>&1 | tail -10; then
-    gif="$OUTPUT_DIR/demo.gif"
-    if [[ -f "$gif" ]]; then
-      size=$(du -h "$gif" | awk '{print $1}')
-      echo "  ✓ demo.gif generated ($size) at $gif"
-    else
-      echo "  ✗ demo.gif not found after vhs run"
+  for tape in "${TAPES[@]}"; do
+    if [[ ! -f "$tape" ]]; then
+      echo ""
+      echo "[VHS] skip (tape missing): $tape"
+      continue
     fi
-  else
-    echo "  ✗ vhs failed"
-  fi
+    tape_name="$(basename "$tape")"
+    echo ""
+    echo "[VHS] generating GIF from $tape_name"
+    echo "────────────────────────────────────────────────────────"
+    # Parse the Output directive to know which gif to verify.
+    gif_rel="$(grep -m1 '^Output' "$tape" | awk '{print $2}' | tr -d '"')"
+    gif_abs="$REPO_ROOT/$gif_rel"
+    if vhs "$tape" 2>&1 | tail -10; then
+      if [[ -f "$gif_abs" ]]; then
+        size=$(du -h "$gif_abs" | awk '{print $1}')
+        echo "  ✓ $(basename "$gif_abs") generated ($size) at $gif_abs"
+      else
+        echo "  ✗ $(basename "$gif_abs") not found after vhs run"
+      fi
+    else
+      echo "  ✗ vhs failed for $tape_name"
+    fi
+  done
 fi
 
 # --- summary ---
