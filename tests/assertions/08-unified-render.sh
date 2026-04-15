@@ -11,9 +11,17 @@ tmux_use_fixtures "$SESSION"
 OUT_FILE="$OUTPUT_DIR/${SESSION}.out"
 rm -f "$OUT_FILE" "$OUT_FILE.done"
 tmux_run "$SESSION" "resumer list --all > $OUT_FILE 2>/dev/null; echo DONE_${SESSION} > $OUT_FILE.done"
-# Wait up to 5s for the done marker.
-for _ in $(seq 1 50); do [[ -f "$OUT_FILE.done" ]] && break; sleep 0.1; done
-
+# Wait up to 5s for the done marker. If it never arrives, fail fast —
+# otherwise the test would assert on partial output of a stalled command.
+_got_done=0
+for _ in $(seq 1 50); do
+  if [[ -f "$OUT_FILE.done" ]]; then _got_done=1; break; fi
+  sleep 0.1
+done
+if (( _got_done == 0 )); then
+  FAIL_REASONS+=("done marker never appeared — resumer list stalled or crashed")
+  finish "$SESSION"
+fi
 assert_file_exists "$OUT_FILE"                               "list output file created"
 
 OUT="$(cat "$OUT_FILE")"

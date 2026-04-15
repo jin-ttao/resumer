@@ -98,6 +98,21 @@ tmux_kill() {
   tmux kill-session -t "$1" 2>/dev/null || true
 }
 
+wait_for_file() {
+  # Usage: wait_for_file PATH [timeout_s=5] — poll for a file to exist and be
+  # non-empty. Returns 0 on success, 1 on timeout. Avoids fixed sleeps after
+  # mock binary invocations.
+  local path="$1"
+  local timeout="${2:-5}"
+  local elapsed=0
+  while (( elapsed < timeout * 20 )); do
+    if [[ -s "$path" ]]; then return 0; fi
+    sleep 0.05
+    elapsed=$((elapsed + 1))
+  done
+  return 1
+}
+
 # --- assertions ---
 
 TEST_NAME="${TEST_NAME:-unknown}"

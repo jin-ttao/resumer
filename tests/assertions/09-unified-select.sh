@@ -26,10 +26,18 @@ run_select_case() {
   tmux send-keys -t "$session" "$filter"
   sleep 0.4
   tmux_keys "$session" Enter
-  sleep 1.5
 
   local claude_log="$OUTPUT_DIR/${session}-claude.log"
   local codex_log="$OUTPUT_DIR/${session}-codex.log"
+  # Wait for whichever log the dispatch writes to (whichever first reaches
+  # non-empty). Avoids fixed sleep.
+  local waited=0
+  while (( waited < 100 )); do
+    [[ -s "$claude_log" ]] && break
+    [[ -s "$codex_log" ]] && break
+    sleep 0.05
+    waited=$((waited + 1))
+  done
 
   if [[ "$want_source" == "cc" ]]; then
     if [[ -s "$claude_log" ]] && [[ ! -s "$codex_log" ]]; then
