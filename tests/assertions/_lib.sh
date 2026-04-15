@@ -49,7 +49,8 @@ tmux_enable_codex_mock() {
 tmux_use_fixtures() {
   # Usage: tmux_use_fixtures SESSION — points providers at tests/fixtures so
   # QA runs off deterministic synthetic data instead of the user's real
-  # ~/.claude/projects and ~/.codex/sessions directories.
+  # ~/.claude/projects and ~/.codex/sessions directories. Also materializes
+  # the cwd directories referenced by fixture JSONL so os.chdir succeeds.
   local session="$1"
   tmux_export "$session" RESUMER_CLAUDE_PROJECT_ROOT "$FIXTURES_DIR/claude-code"
   tmux_export "$session" RESUMER_CODEX_SESSION_ROOT "$FIXTURES_DIR/codex"
@@ -57,6 +58,9 @@ tmux_use_fixtures() {
   # CodexProvider.is_available() checks shutil.which(bin); point it at the
   # mock binary inside tests/mock-bin (which PATH already includes).
   tmux_export "$session" RESUMER_CODEX_BIN codex
+  mkdir -p /tmp/resumer-fixtures/alpha /tmp/resumer-fixtures/beta \
+           /tmp/resumer-fixtures/codex-one /tmp/resumer-fixtures/codex-two \
+           /tmp/resumer-fixtures/codex-three
 }
 
 tmux_run() {
