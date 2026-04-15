@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# codex-recent — shim to `resumer list --source=codex "$@"`.
+exec "$(dirname "$(realpath "$0")")/resumer" list --source=codex "$@"
