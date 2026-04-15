@@ -61,6 +61,9 @@ tmux_use_fixtures() {
   mkdir -p /tmp/resumer-fixtures/alpha /tmp/resumer-fixtures/beta \
            /tmp/resumer-fixtures/codex-one /tmp/resumer-fixtures/codex-two \
            /tmp/resumer-fixtures/codex-three
+  # Target dir for scenario 12 (stale-cwd regression). Encoded form of this
+  # path matches the fixture's parent dir name under tests/fixtures/claude-code/.
+  mkdir -p "/tmp/resumer-fixtures/obsidian path with space/vault"
 }
 
 tmux_run() {

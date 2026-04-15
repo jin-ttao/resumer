@@ -76,8 +76,26 @@ total=${#scenarios[@]}
 i=0
 
 echo "════════════════════════════════════════════════════════"
-echo " resumer QA — $total scenario(s)"
+echo " resumer QA — $total scenario(s) + unit tests"
 echo "════════════════════════════════════════════════════════"
+
+# --- unit tests (python3 direct) ---
+if [[ -z "$ONLY" ]]; then
+  echo ""
+  echo "[unit] tests/unit/test_claude_code_cwd.py"
+  echo "────────────────────────────────────────────────────────"
+  if python3 "$REPO_ROOT/tests/unit/test_claude_code_cwd.py" >/dev/null 2>&1; then
+    echo "  ✓ unit tests PASS"
+    pass=$((pass+1))
+    total=$((total+1))
+  else
+    # Re-run verbose to surface the failure output.
+    python3 "$REPO_ROOT/tests/unit/test_claude_code_cwd.py"
+    fail=$((fail+1))
+    failed_names+=("unit-claude-code-cwd")
+    total=$((total+1))
+  fi
+fi
 
 for s in "${scenarios[@]}"; do
   i=$((i+1))
