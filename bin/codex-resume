@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# codex-resume — shim to `resumer --source=codex "$@"`.
+exec "$(dirname "$(realpath "$0")")/resumer" --source=codex "$@"

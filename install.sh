@@ -15,7 +15,10 @@ if ! echo "$PATH" | tr ':' '\n' | grep -q "$HOME/.local/bin"; then
 fi
 
 # 2. Symlink executables
-for f in cc-recent cc-resume; do
+# Legacy (Claude Code only) commands — kept for backward compatibility.
+# New unified + codex commands — resumer is the canonical entry; codex-*
+# are convenience shims that call `resumer --source=codex`.
+for f in cc-recent cc-resume resumer codex-recent codex-resume; do
   ln -sf "$SCRIPT_DIR/bin/$f" "$HOME/.local/bin/$f"
   echo "  Linked: ~/.local/bin/$f → bin/$f"
 done
@@ -23,8 +26,11 @@ done
 # 3. Check optional dependency
 if ! command -v fzf >/dev/null 2>&1; then
   echo ""
-  echo "Note: cc-resume requires 'fzf'. Install with: brew install fzf"
+  echo "Note: resumer / cc-resume require 'fzf'. Install with: brew install fzf"
 fi
 
 echo ""
-echo "Done. Try: cc-recent --help"
+echo "Done. Try:"
+echo "  resumer                  # unified picker (Claude Code + Codex)"
+echo "  resumer list --days 7    # merged list"
+echo "  cc-recent --help         # legacy Claude Code only"
