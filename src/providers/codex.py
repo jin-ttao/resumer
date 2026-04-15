@@ -133,11 +133,13 @@ def _parse_jsonl(path: str) -> Session | None:
 
     index = _load_index()
     title = index.get(session_id)
+    project_label = os.path.basename((cwd or "").rstrip("/")) or "(unknown)"
 
     return Session(
         source="codex",
         session_id=session_id,
         path=path,
+        project_label=project_label,
         cwd=cwd,
         first_ts=first_ts,
         last_ts=last_ts,

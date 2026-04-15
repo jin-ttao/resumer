@@ -7,17 +7,34 @@ Separate from the dispatch layer so exec decisions live in bin/resumer.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 
+# Safe session id shape: alphanumerics, dashes, underscores. Providers emit
+# UUIDs (hex + dashes), so this is strict enough to reject any attempt to
+# sneak `/` or `..` into preview file paths.
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SAFE_SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _safe_preview_path(preview_dir: str, source: str, session_id: str) -> str | None:
+    """Return the preview file path only if both source and session_id are
+    safe identifiers. Returns None otherwise so callers can skip the write/read
+    instead of constructing a path that could escape preview_dir."""
+    if not _SAFE_ID_RE.match(session_id or ""):
+        return None
+    if not _SAFE_SOURCE_RE.match(source or ""):
+        return None
+    return os.path.join(preview_dir, f"{source}-{session_id}.txt")
+
 from render import (
     BADGE_ANSI,
     _badge,
     _fmt_last_short,
-    _project_label,
     render_full_box,
 )
 from session import Session
@@ -60,7 +77,7 @@ def _build_fzf_line(s: Session) -> str:
     """Tab-separated columns: last | badge | project | markers | tok | label || source | sid | cwd"""
     last = pad_display(_fmt_last_short(s.last_ts), 15)
     badge = _badge(s.source, BADGE_ANSI.get(s.source, ""))
-    proj = pad_display(trim_display(_project_label(s), 22), 22)
+    proj = pad_display(trim_display(s.project_label, 22), 22)
     msgs = s.asst_count + len(s.prompts)
     markers = pad_display(volume_marker(msgs), 2)
     tok_total = s.tokens.input if s.tokens else 0
@@ -88,7 +105,17 @@ def pick(sessions: list[Session]) -> Session | None:
         for s in sessions:
             key = (s.source, s.session_id)
             index[key] = s
-            out_path = os.path.join(preview_dir, f"{s.source}-{s.session_id}.txt")
+            out_path = _safe_preview_path(preview_dir, s.source, s.session_id)
+            if out_path is None:
+                # Session id/source failed safe-identifier check — skip preview
+                # generation rather than risk path traversal. Picker still lists
+                # the row (preview will show "not found" if user focuses it).
+                print(
+                    f"resumer: skipping preview for unsafe session id "
+                    f"({s.source}:{s.session_id!r})",
+                    file=sys.stderr,
+                )
+                continue
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(render_full_box(s))
 
@@ -137,7 +164,10 @@ def pick(sessions: list[Session]) -> Session | None:
 
 def preview_for(preview_dir: str, source: str, session_id: str) -> int:
     """Internal: print pre-rendered preview file."""
-    path = os.path.join(preview_dir, f"{source}-{session_id}.txt")
+    path = _safe_preview_path(preview_dir, source, session_id)
+    if path is None:
+        print(f"(preview rejected: unsafe id {source}:{session_id!r})", file=sys.stderr)
+        return 1
     try:
         with open(path, "r", encoding="utf-8") as f:
             sys.stdout.write(f.read())

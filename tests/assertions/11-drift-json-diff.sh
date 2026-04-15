@@ -37,21 +37,43 @@ common = set(cc) & set(rz)
 if not common:
     # No overlap means --days/--limit windows didn't intersect on this day
     # (happens on low-activity days). Parity is untestable, not broken.
-    print(f"  ⚠ no overlapping sessions (cc={len(cc)}, rz={len(rz)}) — parity untestable, treating as PASS")
+    # Exit 0 so the QA runner doesn't fail, but surface explicit SKIPPED
+    # marker so the user can see the test didn't actually run.
+    print(f"  ⚠ SKIPPED: no overlapping sessions (cc={len(cc)}, rz={len(rz)}) — parity untestable today")
     sys.exit(0)
+
+from datetime import datetime
+
+def _parse_ts(s):
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+def _ts_equal(a, b, tolerance_s=60):
+    # cc-recent and resumer are invoked sequentially; an actively-written
+    # session can grow lines between the two reads. Accept drift within
+    # tolerance_s to suppress race-condition false positives.
+    da, db = _parse_ts(a), _parse_ts(b)
+    if da is None or db is None:
+        return a == b
+    return abs((da - db).total_seconds()) <= tolerance_s
 
 mismatches = []
 for sid in sorted(common):
     a, b = cc[sid], rz[sid]
     a_first = (a['prompts'][0]['text'] if a.get('prompts') else None)
     b_first = (b['prompts'][0]['text'] if b.get('prompts') else b.get('first_prompt'))
-    for field, va, vb in [
-        ('first_ts', a['first_ts'], b['first_ts']),
-        ('last_ts', a['last_ts'], b['last_ts']),
-        ('cwd', a['cwd'], b['cwd']),
-        ('first_prompt', a_first, b_first),
-    ]:
-        if va != vb:
+    checks = [
+        ('first_ts', a['first_ts'], b['first_ts'], _ts_equal(a['first_ts'], b['first_ts'])),
+        ('last_ts', a['last_ts'], b['last_ts'], _ts_equal(a['last_ts'], b['last_ts'])),
+        ('cwd', a['cwd'], b['cwd'], a['cwd'] == b['cwd']),
+        ('first_prompt', a_first, b_first, a_first == b_first),
+    ]
+    for field, va, vb, ok in checks:
+        if not ok:
             mismatches.append(f"{sid[:8]}.{field}: cc={va!r} != rz={vb!r}")
 
 if mismatches:
@@ -64,6 +86,8 @@ PYEOF
 rc=$?
 
 if [[ $rc -eq 0 ]]; then
+  # May have been a real PASS or a SKIPPED (empty intersection). Python block
+  # above printed the distinction; runner just sees exit 0.
   echo "[$TEST_NAME] PASS"
   exit 0
 fi

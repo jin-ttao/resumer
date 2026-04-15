@@ -24,6 +24,11 @@ TAPES=(
 )
 mkdir -p "$OUTPUT_DIR"
 
+# Prepend repo bin/ so cc-recent, cc-resume, resumer, codex-* resolve even
+# when the user hasn't run ./install.sh yet. This makes `./tests/run-qa.sh`
+# work straight from a fresh checkout.
+export PATH="$REPO_ROOT/bin:$PATH"
+
 # --- args ---
 RUN_VHS=1
 ONLY=""

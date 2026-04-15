@@ -17,6 +17,7 @@ class Session:
     source: str
     session_id: str
     path: str
+    project_label: str = "(unknown)"  # provider-decoded short project name for display
     cwd: str | None = None
     first_ts: str | None = None
     last_ts: str | None = None

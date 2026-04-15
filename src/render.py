@@ -48,31 +48,6 @@ FIRST_PROMPT_WIDTH = 78
 AUX_WIDTH = 46
 
 
-def _project_label(s: Session) -> str:
-    """Short project identifier for the table column.
-
-    claude-code sessions encode project in the parent dir; codex sessions have cwd.
-    """
-    if s.source == "claude-code":
-        # encoded dir like -Users-jintaesong-Desktop-Home-foo → foo
-        encoded = os.path.basename(os.path.dirname(s.path))
-        d = encoded.lstrip("-")
-        for prefix in (
-            "Users-jintaesong-Desktop-Home-",
-            "Users-jintaesong-Desktop-",
-            "Users-jintaesong-Library-Mobile-Documents-iCloud-md-obsidian-Documents-",
-            "Users-jintaesong-",
-        ):
-            if d.startswith(prefix):
-                d = d[len(prefix):]
-                break
-        return d or "(unknown)"
-    # codex: take last path component of cwd
-    if s.cwd:
-        return os.path.basename(s.cwd.rstrip("/")) or "(root)"
-    return "(unknown)"
-
-
 def _fmt_last_short(ts: str | None) -> str:
     """'MM-DD HH:MM:SS' form used in the index table."""
     formatted = fmt_ts(ts, include_year=False)
@@ -92,7 +67,7 @@ def render_index(sessions: list[Session]) -> str:
     for s in sessions:
         last = pad_display(_fmt_last_short(s.last_ts), 17)
         badge = _badge(s.source, BADGE_ANSI.get(s.source, ""))
-        proj = pad_display(trim_display(_project_label(s), 25), 25)
+        proj = pad_display(trim_display(s.project_label, 25), 25)
         msgs = s.asst_count + (len(s.prompts) if s.prompts else 0)
         markers = f"{volume_marker(msgs)}  "
         tok_total = s.tokens.input if s.tokens else 0
@@ -111,7 +86,7 @@ def render_full_box(s: Session) -> str:
     bar = "─" * width
     lines = [f"┌{bar}"]
     lines.append(f"│ source:         [{s.source}]")
-    lines.append(f"│ 📁 project:     {_project_label(s)}")
+    lines.append(f"│ 📁 project:     {s.project_label}")
     lines.append(f"│ session id:     {s.session_id}")
     lines.append(f"│ started:        {fmt_ts(s.first_ts)}")
     lines.append(f"│ last activity:  {fmt_ts(s.last_ts)}")

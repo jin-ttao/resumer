@@ -108,7 +108,7 @@ def _extract_user_text(content: object) -> str:
 def _parse_jsonl(path: str) -> Session | None:
     session_id = os.path.basename(path).replace(".jsonl", "")
     encoded_dir = os.path.basename(os.path.dirname(path))
-    project_name = decode_project_name(encoded_dir)
+    project_label = decode_project_name(encoded_dir)
 
     first_ts: str | None = None
     last_ts: str | None = None
@@ -192,12 +192,11 @@ def _parse_jsonl(path: str) -> Session | None:
         subtitle_parts.append(f"forked from {forked_from[:8]}")
     subtitle = " · ".join(subtitle_parts) if subtitle_parts else None
 
-    # project_name exposed via path decoding; renderer can derive it from dirname,
-    # but stash in cwd fallback for preview alignment. We keep project_name in path semantics.
     return Session(
         source="claude-code",
         session_id=session_id,
         path=path,
+        project_label=project_label,
         cwd=cwd,
         first_ts=first_ts,
         last_ts=last_ts,
