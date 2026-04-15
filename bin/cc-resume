@@ -19,10 +19,51 @@ import tempfile
 
 CC_RECENT = "cc-recent"
 PREVIEW_CHAR_LIMIT = 350
+# Inlined from resumer's src/providers/claude_code.py (D1 will dedupe). Defends
+# against JSONL stored-cwd drift (observed with iCloud/Obsidian paths). See
+# that file for the full rationale.
+_MAX_WALK_DEPTH = 15
 
 
 def check(name: str) -> bool:
     return shutil.which(name) is not None
+
+
+def _encode_cwd(path: str) -> str:
+    return "-" + path.lstrip("/").replace("/", "-").replace(" ", "-").replace("~", "-")
+
+
+def resolve_exec_cwd(session_path: str, stored_cwd: str | None = None) -> str | None:
+    encoded = os.path.basename(os.path.dirname(session_path))
+    if not encoded.startswith("-"):
+        return None
+    if stored_cwd and os.path.isdir(stored_cwd) and _encode_cwd(stored_cwd) == encoded:
+        return stored_cwd
+    target = encoded.lstrip("-")
+
+    def walk(current: str, remaining: str, depth: int) -> str | None:
+        if depth > _MAX_WALK_DEPTH:
+            return None
+        if not remaining:
+            return current if os.path.isdir(current) else None
+        try:
+            entries = os.listdir(current)
+        except (PermissionError, OSError):
+            return None
+        for entry in entries:
+            enc = entry.replace("/", "-").replace(" ", "-").replace("~", "-")
+            if remaining == enc:
+                full = os.path.join(current, entry)
+                return full if os.path.isdir(full) else None
+            if remaining.startswith(enc + "-"):
+                full = os.path.join(current, entry)
+                if os.path.isdir(full):
+                    hit = walk(full, remaining[len(enc) + 1:], depth + 1)
+                    if hit:
+                        return hit
+        return None
+
+    return walk("/", target, 0)
 
 
 def fmt_tokens(n: int) -> str:
@@ -202,12 +243,16 @@ def main() -> int:
 
     # Use a persistent tempdir for the duration of fzf + selection
     preview_dir = tempfile.mkdtemp(prefix="cc-resume-")
+    session_path = None
     try:
-        # Pre-render all previews to files
+        # Pre-render all previews to files; also build sid → path lookup for
+        # resolve_exec_cwd once fzf returns a selection.
+        sid_to_path: dict[str, str] = {}
         for s in sessions:
             sid = s.get("session_id")
             if not sid:
                 continue
+            sid_to_path[sid] = s.get("path") or ""
             with open(os.path.join(preview_dir, f"{sid}.txt"), "w") as f:
                 f.write(render_box(s))
 
@@ -282,12 +327,21 @@ def main() -> int:
             return 4
         session_id = fields[4].strip()
         cwd = fields[5].strip()
+        session_path = sid_to_path.get(session_id) or ""
     finally:
         shutil.rmtree(preview_dir, ignore_errors=True)
 
     if not session_id:
         print("error: no session id in selection", file=sys.stderr)
         return 5
+
+    # Prefer a cwd derived from the session file's encoded parent dir — the
+    # stored cwd can be stale/mismatched (iCloud/Obsidian paths). See
+    # resolve_exec_cwd docstring.
+    if session_path:
+        resolved = resolve_exec_cwd(session_path, stored_cwd=cwd or None)
+        if resolved:
+            cwd = resolved
 
     # cd into session's original cwd (if possible) and exec claude --resume
     if cwd and os.path.isdir(cwd):

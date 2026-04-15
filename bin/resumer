@@ -64,11 +64,22 @@ def _run_picker(filters: Filters) -> int:
 
 
 def _exec_resume(s) -> int:
-    if s.cwd and os.path.isdir(s.cwd):
-        os.chdir(s.cwd)
-    elif s.cwd:
+    # For claude-code, prefer a cwd derived from the session file's encoded
+    # parent dir. Stored cwd in the JSONL can be stale/mismatched (seen with
+    # iCloud/Obsidian paths), causing `claude --resume` to fail because it
+    # derives the project dir from the current cwd.
+    target_cwd = None
+    if s.source == "claude-code":
+        from providers.claude_code import resolve_exec_cwd
+        target_cwd = resolve_exec_cwd(s.path, stored_cwd=s.cwd)
+    if not target_cwd:
+        target_cwd = s.cwd
+
+    if target_cwd and os.path.isdir(target_cwd):
+        os.chdir(target_cwd)
+    elif target_cwd:
         print(
-            f"warning: session cwd not accessible, running from {os.getcwd()}: {s.cwd}",
+            f"warning: session cwd not accessible, running from {os.getcwd()}: {target_cwd}",
             file=sys.stderr,
         )
     print(

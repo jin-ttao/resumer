@@ -290,3 +290,67 @@ class ClaudeCodeProvider:
             if os.path.basename(path).replace(".jsonl", "") == session_id:
                 return _parse_jsonl(path)
         return None
+
+
+# ---------- resume cwd resolution ----------
+#
+# claude --resume <uuid> derives the project dir from the CURRENT cwd by encoding
+# it (replace / space ~ with -) and looking under ~/.claude/projects/<encoded>/.
+# If resumer chdirs to the JSONL's stored cwd but that stored value is stale or
+# mismatched against the actual file location (observed with iCloud/Obsidian
+# vault paths where all 15 system records had cwd=/Users/foo/Desktop while the
+# file lived under -Users-foo-Library-Mobile-Documents-...), claude can't find
+# the session. Defense: derive cwd from the session file's encoded parent dir,
+# which is always correct because it's where claude stored the file.
+
+_MAX_WALK_DEPTH = 15  # guard against symlink loops; typical iCloud paths ~8 deep
+
+
+def _encode_cwd(path: str) -> str:
+    """Mimic Claude Code's cwd → project-dir encoding: / space ~ all become -."""
+    return "-" + path.lstrip("/").replace("/", "-").replace(" ", "-").replace("~", "-")
+
+
+def resolve_exec_cwd(
+    session_path: str, stored_cwd: str | None = None
+) -> str | None:
+    """Find a filesystem dir whose encoding matches the session's encoded
+    parent dir. Returns None if no match.
+
+    Fast path: if stored_cwd already encodes to the target, use it directly
+    (the common case — 99%+ of sessions).
+    Slow path: walk from / matching segments. Guards against permission errors
+    and symlink loops via depth limit.
+    """
+    encoded = os.path.basename(os.path.dirname(session_path))
+    if not encoded.startswith("-"):
+        return None
+
+    if stored_cwd and os.path.isdir(stored_cwd) and _encode_cwd(stored_cwd) == encoded:
+        return stored_cwd
+
+    target = encoded.lstrip("-")
+
+    def walk(current: str, remaining: str, depth: int) -> str | None:
+        if depth > _MAX_WALK_DEPTH:
+            return None
+        if not remaining:
+            return current if os.path.isdir(current) else None
+        try:
+            entries = os.listdir(current)
+        except (PermissionError, OSError):
+            return None
+        for entry in entries:
+            enc = entry.replace("/", "-").replace(" ", "-").replace("~", "-")
+            if remaining == enc:
+                full = os.path.join(current, entry)
+                return full if os.path.isdir(full) else None
+            if remaining.startswith(enc + "-"):
+                full = os.path.join(current, entry)
+                if os.path.isdir(full):
+                    hit = walk(full, remaining[len(enc) + 1:], depth + 1)
+                    if hit:
+                        return hit
+        return None
+
+    return walk("/", target, 0)
