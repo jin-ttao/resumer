@@ -7,6 +7,7 @@ Separate from the dispatch layer so exec decisions live in bin/resumer.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,27 @@ from render import (
 )
 from session import Session
 from utils import fmt_tokens, pad_display, trim_display, volume_marker
+
+
+def _sanitize_cell(s: str) -> str:
+    """Strip characters that would break tab-delimited row parsing."""
+    return s.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+
+def _resolve_script_path() -> str:
+    """Best-effort absolute path to the running resumer entry point.
+
+    fzf --preview invokes this script in a child shell with re-parsed sys.argv[0].
+    If launched via PATH as "resumer", argv[0] may just be the basename; use
+    shutil.which as a fallback and fall through to a best-effort absolute path.
+    """
+    argv0 = sys.argv[0]
+    if os.path.sep in argv0:
+        return os.path.realpath(argv0)
+    found = shutil.which(argv0)
+    if found:
+        return os.path.realpath(found)
+    return os.path.realpath(argv0)
 
 
 FIRST_PROMPT_WIDTH = 78
@@ -47,7 +69,8 @@ def _build_fzf_line(s: Session) -> str:
     aux = trim_display(s.title or s.subtitle or "", AUX_WIDTH) if (s.title or s.subtitle) else ""
     label = f"{first}  {aux}" if aux else first
     # Hidden trailing fields (source, session_id, cwd) used by --preview-for and exec.
-    return "\t".join([last, badge, proj, markers, tok_col, label, s.source, s.session_id, s.cwd or ""])
+    cells = [last, badge, proj, markers, tok_col, label, s.source, s.session_id, s.cwd or ""]
+    return "\t".join(_sanitize_cell(c) for c in cells)
 
 
 def pick(sessions: list[Session]) -> Session | None:
@@ -65,14 +88,16 @@ def pick(sessions: list[Session]) -> Session | None:
         for s in sessions:
             key = (s.source, s.session_id)
             index[key] = s
-            with open(os.path.join(preview_dir, f"{s.source}-{s.session_id}.txt"), "w") as f:
+            out_path = os.path.join(preview_dir, f"{s.source}-{s.session_id}.txt")
+            with open(out_path, "w", encoding="utf-8") as f:
                 f.write(render_full_box(s))
 
         fzf_input = "\n".join(_build_fzf_line(s) for s in sessions)
 
-        script_path = os.path.abspath(sys.argv[0])
+        script_path = _resolve_script_path()
         preview_cmd = (
-            f"{script_path!r} --preview-for {preview_dir!r} {{7}} {{8}}"
+            f"{shlex.quote(script_path)} --preview-for "
+            f"{shlex.quote(preview_dir)} {{7}} {{8}}"
         )
         fzf_args = [
             "fzf",
@@ -114,7 +139,7 @@ def preview_for(preview_dir: str, source: str, session_id: str) -> int:
     """Internal: print pre-rendered preview file."""
     path = os.path.join(preview_dir, f"{source}-{session_id}.txt")
     try:
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             sys.stdout.write(f.read())
         return 0
     except FileNotFoundError:

@@ -49,7 +49,7 @@ def fmt_duration(a: str | None, b: str | None) -> str:
 
 
 def trim(txt: str, limit: int) -> str:
-    one = txt.replace("\n", " ").replace("\r", " ")
+    one = txt.replace("\n", " ").replace("\r", " ").replace("\t", " ")
     if len(one) <= limit:
         return one
     return one[: max(0, limit - 1)] + "…"
@@ -77,7 +77,7 @@ def display_width(s: str) -> int:
 
 
 def trim_display(txt: str, max_w: int) -> str:
-    one = txt.replace("\n", " ").replace("\r", " ")
+    one = txt.replace("\n", " ").replace("\r", " ").replace("\t", " ")
     if display_width(one) <= max_w:
         return one
     out: list[str] = []

@@ -11,12 +11,10 @@ from dataclasses import asdict
 
 from session import Session
 from utils import (
-    display_width,
     fmt_duration,
     fmt_tokens,
     fmt_ts,
     pad_display,
-    parse_iso,
     trim,
     trim_display,
     volume_marker,
@@ -24,7 +22,6 @@ from utils import (
 
 
 ANSI_RESET = "\x1b[0m"
-ANSI_DIM = "\x1b[2m"
 
 
 def _no_color() -> bool:
@@ -59,7 +56,6 @@ def _project_label(s: Session) -> str:
     if s.source == "claude-code":
         # encoded dir like -Users-jintaesong-Desktop-Home-foo → foo
         encoded = os.path.basename(os.path.dirname(s.path))
-        from utils import _is_wide_char  # noqa
         d = encoded.lstrip("-")
         for prefix in (
             "Users-jintaesong-Desktop-Home-",
