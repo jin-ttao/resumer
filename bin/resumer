@@ -121,10 +121,20 @@ def main(argv: list[str] | None = None) -> int:
         source=args.source,
     )
 
-    if not available_source_names():
+    # Global availability check only runs when no specific source requested;
+    # otherwise merged_list raises a source-specific RuntimeError with better
+    # diagnostics ("codex provider not available" vs generic message).
+    if not args.source and not available_source_names():
         print(
             "error: no session providers available. "
             "Install claude-code or codex and ensure their session directories exist.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.command != "list" and (args.json or args.full is not None):
+        print(
+            "error: --json and --full are only valid with the 'list' subcommand",
             file=sys.stderr,
         )
         return 2
