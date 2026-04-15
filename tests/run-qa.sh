@@ -81,20 +81,22 @@ echo "════════════════════════�
 
 # --- unit tests (python3 direct) ---
 if [[ -z "$ONLY" ]]; then
-  echo ""
-  echo "[unit] tests/unit/test_claude_code_cwd.py"
-  echo "────────────────────────────────────────────────────────"
-  if python3 "$REPO_ROOT/tests/unit/test_claude_code_cwd.py" >/dev/null 2>&1; then
-    echo "  ✓ unit tests PASS"
-    pass=$((pass+1))
+  for unit_file in "$REPO_ROOT"/tests/unit/test_*.py; do
+    [[ -f "$unit_file" ]] || continue
+    unit_name="unit/$(basename "$unit_file" .py)"
+    echo ""
+    echo "[unit] $unit_name"
+    echo "────────────────────────────────────────────────────────"
+    if python3 "$unit_file" >/dev/null 2>&1; then
+      echo "  ✓ $unit_name PASS"
+      pass=$((pass+1))
+    else
+      python3 "$unit_file"
+      fail=$((fail+1))
+      failed_names+=("$unit_name")
+    fi
     total=$((total+1))
-  else
-    # Re-run verbose to surface the failure output.
-    python3 "$REPO_ROOT/tests/unit/test_claude_code_cwd.py"
-    fail=$((fail+1))
-    failed_names+=("unit-claude-code-cwd")
-    total=$((total+1))
-  fi
+  done
 fi
 
 for s in "${scenarios[@]}"; do

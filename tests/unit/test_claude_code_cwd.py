@@ -137,6 +137,30 @@ class ResolveExecCwdTests(unittest.TestCase):
         # slow path should still find the real target.
         self.assertEqual(result, self.target_dir)
 
+    def test_permission_denied_subtree_is_skipped(self):
+        # Create a subtree the user can't read and ensure walk gracefully
+        # skips it instead of crashing. Uses chmod 000 on a decoy sibling
+        # that prefix-matches the encoded target.
+        if os.geteuid() == 0:
+            self.skipTest("root bypasses chmod — can't simulate PermissionError")
+        # Build decoy parent that matches the target's first segment prefix
+        # so walk tries to enter it. Make it unreadable.
+        first_segment = os.path.basename(self.target_dir).split(" ")[0]  # e.g. "path"
+        decoy_parent = os.path.join(self.tmp_root, "decoy-perm")
+        decoy_inner = os.path.join(decoy_parent, first_segment)
+        os.makedirs(decoy_inner, exist_ok=True)
+        os.chmod(decoy_parent, 0o000)
+        try:
+            # The real target still lives at self.target_dir under self.tmp_root,
+            # and walk should find it via the correct parent despite the decoy
+            # being unreadable. Primary assertion: no exception escapes.
+            result = resolve_exec_cwd(
+                self.session_path, stored_cwd="/nonexistent/force-slow-path"
+            )
+            self.assertEqual(result, self.target_dir)
+        finally:
+            os.chmod(decoy_parent, 0o755)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
