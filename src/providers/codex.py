@@ -48,16 +48,15 @@ def _codex_bin_available() -> bool:
     return shutil.which("codex") is not None
 
 
-_index_cache: dict[str, str] | None = None
-_index_warned = False
+_index_cache: dict[str, dict[str, str]] = {}
+_index_warned_paths: set[str] = set()
 
 
 def _load_index() -> dict[str, str]:
-    """Map session_id → thread_name. Graceful on missing/corrupt."""
-    global _index_cache, _index_warned
-    if _index_cache is not None:
-        return _index_cache
+    """Map session_id → thread_name. Graceful on missing/corrupt. Cache keyed by resolved path."""
     path = _index_file()
+    if path in _index_cache:
+        return _index_cache[path]
     out: dict[str, str] = {}
     try:
         with open(path, "r", errors="replace") as fp:
@@ -71,14 +70,14 @@ def _load_index() -> dict[str, str]:
                 if isinstance(sid, str) and isinstance(name, str) and name.strip():
                     out[sid] = name.strip()
     except OSError:
-        if not _index_warned:
+        if path not in _index_warned_paths:
             print(
                 f"resumer: codex session_index missing or unreadable ({path}); "
                 "titles will be unavailable",
                 file=sys.stderr,
             )
-            _index_warned = True
-    _index_cache = out
+            _index_warned_paths.add(path)
+    _index_cache[path] = out
     return out
 
 
@@ -104,7 +103,8 @@ def _parse_jsonl(path: str) -> Session | None:
                         first_ts = ts
                     last_ts = ts
                 t = r.get("type")
-                payload = r.get("payload") or {}
+                raw_payload = r.get("payload")
+                payload = raw_payload if isinstance(raw_payload, dict) else {}
                 if lineno == 1:
                     if t != "session_meta":
                         print(
@@ -246,8 +246,9 @@ class CodexProvider:
 
     def load_detail(self, session_id: str) -> Session | None:
         root = _session_root()
+        suffix = f"-{session_id}.jsonl"
         for path in _find_rollout_files(root):
-            if session_id in os.path.basename(path):
+            if os.path.basename(path).endswith(suffix):
                 s = _parse_jsonl(path)
                 if s and s.session_id == session_id:
                     return s
