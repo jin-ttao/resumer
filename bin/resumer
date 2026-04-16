@@ -38,8 +38,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="subcommand (omit for interactive picker)")
     p.add_argument("--source", choices=["claude-code", "codex"],
                    help="limit to a single provider")
-    p.add_argument("--days", type=int, default=3,
-                   help="only show sessions active in the last N days (default: 3)")
+    p.add_argument("--days", type=int, default=7,
+                   help="only show sessions active in the last N days (default: 7)")
     p.add_argument("--date", help="YYYY-MM-DD — only sessions active on this date")
     p.add_argument("--all", action="store_true", help="no time filter")
     p.add_argument("--project", help="substring match against project name")
