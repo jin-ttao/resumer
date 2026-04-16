@@ -133,7 +133,8 @@ def pick(sessions: list[Session]) -> Session | None:
             "--with-nth=1,2,3,4,5,6",  # hide source(7), sid(8), cwd(9)
             "--preview", preview_cmd,
             "--preview-window=down:65%:wrap:border-top",
-            "--header=↑↓ browse · [cc]/[codex] source · ·/●/◉=volume · Enter=resume · Esc=cancel",
+            "--header=↑↓ browse · Ctrl-S=toggle sort · Enter=resume · Esc=cancel",
+            "--bind", "ctrl-s:toggle-sort",
             "--prompt=session> ",
             "--height=95%",
             "--border",
