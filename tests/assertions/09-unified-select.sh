@@ -62,7 +62,7 @@ run_select_case() {
 # codex-one(05:00), cc fixture-beta forked(04:00), ...
 # Top row (0 downs) = codex-three.
 run_select_case "resumer-qa-09a" "codex" "codex-three"
-run_select_case "resumer-qa-09b" "cc"    "fixture-beta"
+run_select_case "resumer-qa-09b" "cc"    "beta"
 
 if (( ${#FAIL_REASONS[@]} == 0 )); then
   echo "[$TEST_NAME] PASS"

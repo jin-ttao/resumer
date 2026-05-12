@@ -31,14 +31,14 @@ def _safe_preview_path(preview_dir: str, source: str, session_id: str) -> str | 
         return None
     return os.path.join(preview_dir, f"{source}-{session_id}.txt")
 
-from render import (
+from resumer.render import (
     BADGE_ANSI,
     _badge,
     _fmt_last_short,
     render_full_box,
 )
-from session import Session
-from utils import fmt_tokens, pad_display, trim_display, volume_marker
+from resumer.session import Session
+from resumer.utils import fmt_tokens, pad_display, trim_display, volume_marker
 
 
 def _sanitize_cell(s: str) -> str:

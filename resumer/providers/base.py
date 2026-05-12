@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterator, Protocol
 
-from session import Filters, Session
+from resumer.session import Filters, Session
 
 
 class Provider(Protocol):

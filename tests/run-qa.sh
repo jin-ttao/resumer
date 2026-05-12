@@ -5,12 +5,11 @@
 # Usage:
 #   ./tests/run-qa.sh              # all scenarios + VHS demo
 #   ./tests/run-qa.sh --no-vhs     # skip VHS demo
-#   ./tests/run-qa.sh --only 04    # run scenario 04 (cc-resume) only
 #   ./tests/run-qa.sh --only 07    # run scenario 07 (codex picker) only
 #
-# Scenarios 01-06 cover the legacy cc-resume picker.
-# Scenarios 07-11 cover the new resumer unified system (codex provider,
-# unified dispatch, missing-provider fallback, parser drift guard).
+# Scenarios 07-10 cover the unified resumer system (codex provider, unified
+# dispatch, missing-provider fallback). Scenario 12 guards the stale-cwd
+# regression fix.
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,15 +18,9 @@ OUTPUT_DIR="$REPO_ROOT/tests/output"
 # Tapes run in listed order. Add more tape paths here to grow coverage;
 # each one produces its own GIF via the Output directive inside the tape.
 TAPES=(
-  "$REPO_ROOT/tests/demo.tape"           # legacy cc-resume demo
-  "$REPO_ROOT/tests/resumer-demo.tape"   # unified resumer demo
+  "$REPO_ROOT/tests/resumer-demo.tape"
 )
 mkdir -p "$OUTPUT_DIR"
-
-# Prepend repo bin/ so cc-recent, cc-resume, resumer, codex-* resolve even
-# when the user hasn't run ./install.sh yet. This makes `./tests/run-qa.sh`
-# work straight from a fresh checkout.
-export PATH="$REPO_ROOT/bin:$PATH"
 
 # --- args ---
 RUN_VHS=1
@@ -44,20 +37,23 @@ while (( $# > 0 )); do
 done
 
 # --- preflight ---
-for cmd in tmux fzf cc-recent cc-resume python3; do
+for cmd in tmux fzf python3 resumer; do
   if ! command -v "$cmd" >/dev/null; then
     echo "error: missing dependency: $cmd"
+    echo "       (resumer: pip install -e . or pipx install resumer)"
     exit 2
   fi
 done
-# resumer + codex mock must be resolvable from the repo checkout (PATH needn't
-# include them; scenarios prepend BIN_DIR and MOCK_BIN via _lib.sh).
-for path in "$REPO_ROOT/bin/resumer" "$REPO_ROOT/tests/mock-bin/codex"; do
-  if [[ ! -x "$path" ]]; then
-    echo "error: missing executable: $path"
-    exit 2
-  fi
-done
+# Entry point smoke test: catches broken pyproject.toml or stale install.
+if ! resumer --version >/dev/null 2>&1; then
+  echo "error: 'resumer --version' failed — check editable install"
+  exit 2
+fi
+# Codex mock binary must be present (scenarios prepend MOCK_BIN via _lib.sh).
+if [[ ! -x "$REPO_ROOT/tests/mock-bin/codex" ]]; then
+  echo "error: missing executable: $REPO_ROOT/tests/mock-bin/codex"
+  exit 2
+fi
 if (( RUN_VHS )) && ! command -v vhs >/dev/null; then
   echo "warn: vhs not installed; skipping GIF (use --no-vhs to silence)"
   RUN_VHS=0

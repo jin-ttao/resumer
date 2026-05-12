@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resumer"
+version = "0.1.0"
+description = "Browse & resume your Claude Code / Codex sessions with fzf"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Jintae Song", email = "w.jinttao@gmail.com" }]
+keywords = ["claude-code", "codex", "cli", "fzf", "ai", "session", "resume"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Utilities",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/jin-ttao/resumer"
+Repository = "https://github.com/jin-ttao/resumer"
+Issues = "https://github.com/jin-ttao/resumer/issues"
+
+[project.scripts]
+resumer = "resumer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["resumer*"]

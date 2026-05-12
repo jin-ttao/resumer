@@ -18,8 +18,8 @@ import re
 from datetime import datetime, timezone
 from typing import Iterator
 
-from session import Filters, Session, TokenUsage
-from utils import decode_project_name, parse_iso
+from resumer.session import Filters, Session, TokenUsage
+from resumer.utils import parse_iso
 
 
 DEFAULT_PROJECT_ROOT = os.path.expanduser("~/.claude/projects")
@@ -108,7 +108,6 @@ def _extract_user_text(content: object) -> str:
 def _parse_jsonl(path: str) -> Session | None:
     session_id = os.path.basename(path).replace(".jsonl", "")
     encoded_dir = os.path.basename(os.path.dirname(path))
-    project_label = decode_project_name(encoded_dir)
 
     first_ts: str | None = None
     last_ts: str | None = None
@@ -181,6 +180,14 @@ def _parse_jsonl(path: str) -> Session | None:
                         ai_title = at.strip()
     except OSError:
         return None
+
+    # Project label from the session's real cwd field (basename), matching the
+    # Codex provider pattern. Falls back to the encoded dir's last hyphen
+    # segment for legacy session files that lack a cwd record.
+    if cwd:
+        project_label = os.path.basename(cwd.rstrip("/")) or "(unknown)"
+    else:
+        project_label = encoded_dir.lstrip("-").rsplit("-", 1)[-1] or "(unknown)"
 
     plan_title = _read_plan_title(plan_path) if plan_path else None
 
@@ -271,9 +278,7 @@ class ClaudeCodeProvider:
             if s is None:
                 continue
             if filters.project:
-                encoded = os.path.basename(os.path.dirname(path))
-                decoded = decode_project_name(encoded).lower()
-                if filters.project.lower() not in decoded:
+                if filters.project.lower() not in s.project_label.lower():
                     continue
             if day is not None:
                 if not _touches_date(s, day):

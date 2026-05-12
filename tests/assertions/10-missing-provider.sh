@@ -5,7 +5,7 @@
 TEST_NAME="10-missing-provider"
 source "$(dirname "$0")/_lib.sh"
 
-export PATH="$MOCK_BIN:$BIN_DIR:$PATH"
+export PATH="$MOCK_BIN:$PATH"
 export RESUMER_CLAUDE_PROJECT_ROOT="$FIXTURES_DIR/claude-code"
 export RESUMER_CODEX_SESSION_ROOT="/nonexistent/resumer-qa-missing"
 export RESUMER_CODEX_BIN=codex

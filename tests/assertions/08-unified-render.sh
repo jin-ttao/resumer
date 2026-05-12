@@ -27,8 +27,8 @@ assert_file_exists "$OUT_FILE"                               "list output file c
 OUT="$(cat "$OUT_FILE")"
 assert_contains "$OUT" "\[cc\]"                              "at least one [cc] row"
 assert_contains "$OUT" "\[codex\]"                           "at least one [codex] row"
-assert_contains "$OUT" "fixture-alpha"                       "cc fixture-alpha appears"
-assert_contains "$OUT" "fixture-beta"                        "cc fixture-beta appears"
+assert_contains "$OUT" " alpha "                             "cc alpha row appears (basename of cwd)"
+assert_contains "$OUT" " beta "                              "cc beta row appears (basename of cwd)"
 assert_contains "$OUT" "codex-one|codex-two|codex-three"     "at least one codex fixture project appears"
 
 # Sort: first data row (after header + divider) should be the most recent one,
@@ -37,9 +37,9 @@ FIRST_ROW="$(sed -n '3p' "$OUT_FILE")"
 assert_contains "$FIRST_ROW" "codex-three"                   "top row is most-recent codex session (desc sort)"
 assert_contains "$FIRST_ROW" "\[codex\]"                     "top row has [codex] badge"
 
-# Last row should be the oldest cc fixture (01:05 plain session).
+# Last row should be the oldest cc fixture (01:05 plain session, cwd=/tmp/.../alpha).
 LAST_ROW="$(tail -1 "$OUT_FILE")"
-assert_contains "$LAST_ROW" "fixture-alpha"                  "last row is oldest cc session"
+assert_contains "$LAST_ROW" " alpha "                        "last row is oldest cc session (alpha)"
 assert_contains "$LAST_ROW" "plain fixture"                  "last row shows plain fixture first prompt"
 
 finish "$SESSION"
