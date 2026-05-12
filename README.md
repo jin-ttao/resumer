@@ -2,8 +2,6 @@
 
 > Browse & resume your Claude Code / Codex sessions with fzf.
 
-![demo](docs/demo.gif)
-
 ```bash
 brew install jin-ttao/tap/resumer
 # or
