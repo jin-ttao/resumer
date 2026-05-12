@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 
 from resumer import __version__
@@ -23,6 +24,36 @@ from resumer.session import Filters
 from resumer.render import render_full_box, render_index, render_json
 from resumer.picker import pick, preview_for
 from resumer.registry import available_source_names, merged_list
+
+
+_STAR_URL = "https://github.com/jin-ttao/resumer"
+
+
+def _state_dir() -> str:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(base, "resumer")
+
+
+def _maybe_show_first_run_star(resume_bin: str) -> None:
+    """Print a one-time star nudge on the user's first successful resume.
+
+    Guard: if the resume binary itself is not on PATH, skip both the message
+    and the sentinel. That way the message fires only when the user is
+    actually about to experience the tool — not on a failed first attempt
+    that would otherwise burn the sentinel.
+    """
+    if not shutil.which(resume_bin):
+        return
+    sentinel = os.path.join(_state_dir(), "first-run-done")
+    if os.path.exists(sentinel):
+        return
+    try:
+        os.makedirs(os.path.dirname(sentinel), exist_ok=True)
+        with open(sentinel, "w"):
+            pass
+    except OSError:
+        return  # state dir not writable — message can wait
+    print(f"\n  Enjoyed resumer? ⭐ {_STAR_URL}\n", file=sys.stderr)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -79,6 +110,7 @@ def _exec_resume(s) -> int:
             f"warning: session cwd not accessible, running from {os.getcwd()}: {target_cwd}",
             file=sys.stderr,
         )
+    _maybe_show_first_run_star(s.resume_argv[0])
     print(
         f"resuming [{s.source}] {s.session_id} from {os.getcwd()}",
         file=sys.stderr,
@@ -86,10 +118,14 @@ def _exec_resume(s) -> int:
     try:
         os.execvp(s.resume_argv[0], s.resume_argv)
     except FileNotFoundError:
-        print(
-            f"error: '{s.resume_argv[0]}' not found in PATH",
-            file=sys.stderr,
-        )
+        bin_name = s.resume_argv[0]
+        install_hint = {
+            "claude": "https://docs.anthropic.com/en/docs/claude-code/quickstart",
+            "codex": "https://github.com/openai/codex",
+        }.get(bin_name)
+        print(f"error: '{bin_name}' not found in PATH", file=sys.stderr)
+        if install_hint:
+            print(f"       install: {install_hint}", file=sys.stderr)
         return 127
 
 
