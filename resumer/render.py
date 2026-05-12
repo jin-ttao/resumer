@@ -9,8 +9,8 @@ import json
 import os
 from dataclasses import asdict
 
-from session import Session
-from utils import (
+from resumer.session import Session
+from resumer.utils import (
     fmt_duration,
     fmt_tokens,
     fmt_ts,

@@ -18,15 +18,11 @@ import argparse
 import os
 import sys
 
-_HERE = os.path.dirname(os.path.realpath(__file__))
-_SRC = os.path.abspath(os.path.join(_HERE, "..", "src"))
-if _SRC not in sys.path:
-    sys.path.insert(0, _SRC)
-
-from session import Filters  # noqa: E402
-from render import render_full_box, render_index, render_json  # noqa: E402
-from picker import pick, preview_for  # noqa: E402
-from registry import available_source_names, merged_list  # noqa: E402
+from resumer import __version__
+from resumer.session import Filters
+from resumer.render import render_full_box, render_index, render_json
+from resumer.picker import pick, preview_for
+from resumer.registry import available_source_names, merged_list
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -34,6 +30,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="resumer",
         description="Unified AI CLI session resumer.",
     )
+    p.add_argument("--version", action="version", version=f"resumer {__version__}")
     p.add_argument("command", nargs="?", choices=["list"], default=None,
                    help="subcommand (omit for interactive picker)")
     p.add_argument("--source", choices=["claude-code", "codex"],
@@ -70,7 +67,7 @@ def _exec_resume(s) -> int:
     # derives the project dir from the current cwd.
     target_cwd = None
     if s.source == "claude-code":
-        from providers.claude_code import resolve_exec_cwd
+        from resumer.providers.claude_code import resolve_exec_cwd
         target_cwd = resolve_exec_cwd(s.path, stored_cwd=s.cwd)
     if not target_cwd:
         target_cwd = s.cwd

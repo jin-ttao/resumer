@@ -18,8 +18,8 @@ import re
 from datetime import datetime, timezone
 from typing import Iterator
 
-from session import Filters, Session, TokenUsage
-from utils import decode_project_name, parse_iso
+from resumer.session import Filters, Session, TokenUsage
+from resumer.utils import decode_project_name, parse_iso
 
 
 DEFAULT_PROJECT_ROOT = os.path.expanduser("~/.claude/projects")

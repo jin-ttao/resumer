@@ -4,3 +4,8 @@ __pycache__/
 .DS_Store
 tests/output/
 .claude/review-logs/
+
+# Python packaging artifacts
+*.egg-info/
+build/
+dist/

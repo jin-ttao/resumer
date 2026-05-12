@@ -25,8 +25,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
-from session import Filters, Session
-from utils import parse_iso
+from resumer.session import Filters, Session
+from resumer.utils import parse_iso
 
 
 DEFAULT_SESSION_ROOT = os.path.expanduser("~/.codex/sessions")

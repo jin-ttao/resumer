@@ -13,11 +13,11 @@ import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-SRC = os.path.abspath(os.path.join(HERE, "..", "..", "src"))
-if SRC not in sys.path:
-    sys.path.insert(0, SRC)
+REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-from providers.claude_code import (  # noqa: E402
+from resumer.providers.claude_code import (  # noqa: E402
     _MAX_WALK_DEPTH,
     _encode_cwd,
     resolve_exec_cwd,

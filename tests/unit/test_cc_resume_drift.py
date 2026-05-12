@@ -16,11 +16,10 @@ import unittest
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-SRC = os.path.join(REPO, "src")
-if SRC not in sys.path:
-    sys.path.insert(0, SRC)
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
 
-from providers.claude_code import (  # noqa: E402
+from resumer.providers.claude_code import (  # noqa: E402
     _encode_cwd as src_encode,
     resolve_exec_cwd as src_resolve,
 )

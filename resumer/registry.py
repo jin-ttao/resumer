@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from providers.base import Provider
-from providers.claude_code import ClaudeCodeProvider
-from providers.codex import CodexProvider
-from session import Filters, Session
+from resumer.providers.base import Provider
+from resumer.providers.claude_code import ClaudeCodeProvider
+from resumer.providers.codex import CodexProvider
+from resumer.session import Filters, Session
 
 
 _all_providers: list[Provider] = [ClaudeCodeProvider(), CodexProvider()]
