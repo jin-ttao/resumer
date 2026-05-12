@@ -112,16 +112,3 @@ def volume_marker(total_msgs: int) -> str:
     return "◉"
 
 
-def decode_project_name(encoded_dir: str) -> str:
-    """Decode encoded project dir like '-Users-jintaesong-Desktop-Home-foo' → 'foo'."""
-    d = encoded_dir.lstrip("-")
-    for prefix in (
-        "Users-jintaesong-Desktop-Home-",
-        "Users-jintaesong-Desktop-",
-        "Users-jintaesong-Library-Mobile-Documents-iCloud-md-obsidian-Documents-",
-        "Users-jintaesong-",
-    ):
-        if d.startswith(prefix):
-            d = d[len(prefix):]
-            break
-    return d or "(unknown)"
