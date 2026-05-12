@@ -10,13 +10,6 @@
 # Expected: resolve_exec_cwd walks the filesystem and recovers the real path,
 # so os.chdir lands there (not at /bogus/wrong/path). Verified by the mock
 # claude's recorded pwd.
-#
-# resumer only. cc-resume carries the same fix inlined but can't be automated
-# against fixtures because its data source (cc-recent) doesn't honor
-# RESUMER_CLAUDE_PROJECT_ROOT (Option A — legacy untouched).
-# cc-resume verification: manual ad-hoc run on the real Obsidian vault session
-# that originally reproduced the bug. D1 (cc-* → resumer shim transition) will
-# remove the cc-resume branch entirely and subsume it under scenario 12.
 TEST_NAME="12-stale-cwd-fix"
 SESSION="resumer-qa-12"
 source "$(dirname "$0")/_lib.sh"

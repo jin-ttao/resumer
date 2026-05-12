@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared helpers for cc-resume QA scenarios.
+# Shared helpers for resumer QA scenarios.
 # Source this at the top of each scenario script.
 
 set -u
@@ -7,7 +7,6 @@ set -u
 # Paths (relative to repo root)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MOCK_BIN="$REPO_ROOT/tests/mock-bin"
-BIN_DIR="$REPO_ROOT/bin"
 FIXTURES_DIR="$REPO_ROOT/tests/fixtures"
 OUTPUT_DIR="$REPO_ROOT/tests/output"
 mkdir -p "$OUTPUT_DIR"
@@ -26,8 +25,8 @@ tmux_start() {
   rm -f "$log"
   tmux send-keys -t "$session" "export PATH=$MOCK_BIN:\$PATH" Enter
   tmux send-keys -t "$session" "export CLAUDE_MOCK_LOG=$log" Enter
-  # bin/ must be on PATH for resumer + cc-recent + codex-recent lookups.
-  tmux send-keys -t "$session" "export PATH=$BIN_DIR:\$PATH" Enter
+  # resumer entry point comes from the parent shell's PATH (pip install -e .
+  # or pipx). Tmux's new-session inherits PATH so no extra export needed.
   sleep 0.3
 }
 
