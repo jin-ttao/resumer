@@ -31,14 +31,8 @@ def _safe_preview_path(preview_dir: str, source: str, session_id: str) -> str | 
         return None
     return os.path.join(preview_dir, f"{source}-{session_id}.txt")
 
-from resumer.render import (
-    BADGE_ANSI,
-    _badge,
-    _fmt_last_short,
-    render_full_box,
-)
+from resumer.render import _no_color, _row_cells, header_line, render_full_box
 from resumer.session import Session
-from resumer.utils import fmt_tokens, pad_display, trim_display, volume_marker
 
 
 def _sanitize_cell(s: str) -> str:
@@ -62,10 +56,6 @@ def _resolve_script_path() -> str:
     return os.path.realpath(argv0)
 
 
-FIRST_PROMPT_WIDTH = 78
-AUX_WIDTH = 40
-
-
 def _require_fzf() -> bool:
     if shutil.which("fzf") is None:
         print("error: fzf not found. install with: brew install fzf", file=sys.stderr)
@@ -74,20 +64,14 @@ def _require_fzf() -> bool:
 
 
 def _build_fzf_line(s: Session) -> str:
-    """Tab-separated columns: last | badge | project | markers | tok | label || source | sid | cwd"""
-    last = pad_display(_fmt_last_short(s.last_ts), 15)
-    badge = _badge(s.source, BADGE_ANSI.get(s.source, ""))
-    proj = pad_display(trim_display(s.project_label, 22), 22)
-    msgs = s.asst_count + len(s.prompts)
-    markers = pad_display(volume_marker(msgs), 2)
-    tok_total = s.tokens.input if s.tokens else 0
-    tok_col = f"{fmt_tokens(tok_total):>9}"
-    first = pad_display(trim_display(s.first_prompt or "", FIRST_PROMPT_WIDTH), FIRST_PROMPT_WIDTH)
-    aux = trim_display(s.title or s.subtitle or "", AUX_WIDTH) if (s.title or s.subtitle) else ""
-    label = f"{first}  {aux}" if aux else first
-    # Hidden trailing fields (source, session_id, cwd) used by --preview-for and exec.
-    cells = [last, badge, proj, markers, tok_col, label, s.source, s.session_id, s.cwd or ""]
-    return "\t".join(_sanitize_cell(c) for c in cells)
+    """Tab-separated columns: time | badge | project | tokens | summary | title || source | sid | cwd
+
+    First 6 are visible (shared with `render.render_index` via `_row_cells`),
+    last 3 are hidden via `--with-nth` and used by `--preview-for` + resume exec.
+    """
+    cells = _row_cells(s)
+    hidden = (s.source, s.session_id, s.cwd or "")
+    return "\t".join(_sanitize_cell(c) for c in (*cells, *hidden))
 
 
 def pick(sessions: list[Session]) -> Session | None:
@@ -126,19 +110,37 @@ def pick(sessions: list[Session]) -> Session | None:
             f"{shlex.quote(script_path)} --preview-for "
             f"{shlex.quote(preview_dir)} {{7}} {{8}}"
         )
+        # Header is 2 lines: column titles + lowercase keybind footer.
+        # Selected-row colors approximate a wine/pink bar (xterm 88 bg, white fg).
+        header_text = f"{header_line()}\n↑/↓ navigate · enter select · esc cancel"
         fzf_args = [
             "fzf",
             "--ansi",
             "--delimiter=\t",
             "--with-nth=1,2,3,4,5,6",  # hide source(7), sid(8), cwd(9)
             "--preview", preview_cmd,
-            "--preview-window=down:65%:wrap:border-top",
-            "--header=↑↓ browse · Ctrl-S=toggle sort · Enter=resume · Esc=cancel",
+            "--preview-window=down:60%:wrap:border-top",
+            "--header", header_text,
+            "--header-first",
+            "--layout=reverse",
             "--bind", "ctrl-s:toggle-sort",
-            "--prompt=session> ",
+            "--prompt", "  ",
+            "--pointer", "▌",
             "--height=95%",
-            "--border",
+            "--border", "rounded",
+            "--info=inline-right",
         ]
+        # Honor NO_COLOR for fzf chrome too — picker palette is what makes
+        # the picker look "themed", so it has to drop with the rest of the
+        # accents when the user opts out.
+        if not _no_color():
+            fzf_args += [
+                "--color",
+                "bg+:#5e1530,fg+:#ffffff,hl+:#ffffff,"
+                "hl:#d36b8b,pointer:#d36b8b,"
+                "header:#d36b8b,prompt:#d36b8b,"
+                "info:#888888,border:#444444",
+            ]
 
         try:
             proc = subprocess.run(fzf_args, input=fzf_input, text=True, capture_output=True)

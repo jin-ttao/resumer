@@ -112,3 +112,32 @@ def volume_marker(total_msgs: int) -> str:
     return "◉"
 
 
+def wrap_display(text: str, max_w: int) -> list[str]:
+    """CJK-aware character wrap. Returns lines each fitting `max_w` display cols.
+
+    Greedy, character-level (no word boundaries) — preview text is already
+    one-lined and the right pane is narrow, so word-aware wrapping isn't
+    worth the complexity. Returns at least one entry, even for empty input.
+    """
+    one = text.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    if max_w <= 0:
+        return [""]
+    if display_width(one) <= max_w:
+        return [one] if one else [""]
+    out: list[str] = []
+    cur: list[str] = []
+    cur_w = 0
+    for ch in one:
+        cw = 2 if _is_wide_char(ch) else 1
+        if cur_w + cw > max_w:
+            out.append("".join(cur))
+            cur = [ch]
+            cur_w = cw
+        else:
+            cur.append(ch)
+            cur_w += cw
+    if cur:
+        out.append("".join(cur))
+    return out or [""]
+
+

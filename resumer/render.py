@@ -1,7 +1,9 @@
 """Provider-agnostic renderers — index (table), full (preview box), JSON.
 
-Takes a list of Session objects. Provider identity shown via [cc]/[codex]
-badge column with ANSI color (suppressed when NO_COLOR env set).
+List rows use a `● source` badge (dot is colored, body is default) and a fixed
+column layout shared with the fzf picker via `COL_*` constants and `header_line()`.
+The detail box is a 2-column ASCII layout — left pane key:value metadata,
+right pane opening/last prompts.
 """
 from __future__ import annotations
 
@@ -11,118 +13,194 @@ from dataclasses import asdict
 
 from resumer.session import Session
 from resumer.utils import (
+    display_width,
     fmt_duration,
     fmt_tokens,
     fmt_ts,
     pad_display,
     trim,
     trim_display,
-    volume_marker,
+    wrap_display,
 )
 
 
 ANSI_RESET = "\x1b[0m"
+
+# Column widths — single source of truth. `header_line()` and `_row_cells()`
+# both consume these so changing one place keeps header/row alignment.
+COL_TIME = 19      # `YYYY-MM-DD HH:MM:SS`
+COL_SOURCE = 9     # `● claude` / `● codex` plus right-pad
+COL_PROJECT = 16
+COL_TOKENS = 7
+COL_SUMMARY = 48
+COL_TITLE = 30
+
+# Dot color per source. Body of the badge stays default-color so the eye
+# lands on the dot, not the word.
+BADGE_DOT_ANSI = {
+    "claude-code": "\x1b[32m",  # green
+    "codex": "\x1b[36m",        # cyan
+}
+
+# Accent for section labels in the detail box ("opening prompts" / "last prompts").
+# 256-color pink (xterm 168) — readable on both dark and light themes.
+ACCENT_PINK_ANSI = "\x1b[38;5;168m"
+
+# Kept for backwards compatibility with picker.py imports (now unused there).
+BADGE_ANSI = BADGE_DOT_ANSI
 
 
 def _no_color() -> bool:
     return os.environ.get("NO_COLOR") not in (None, "")
 
 
-def _badge(source: str, ansi: str) -> str:
-    """Fixed-width badge like '[cc]   ' or '[codex]'. Padded to 7 visible cols."""
-    text = f"[{'cc' if source == 'claude-code' else source}]"
-    padded = pad_display(text, 7)
+def _source_short(source: str) -> str:
+    """`claude-code` → `claude`. Other sources pass through unchanged."""
+    return "claude" if source == "claude-code" else source
+
+
+def _badge(source: str, ansi: str = "") -> str:
+    """`● claude` style, padded to COL_SOURCE. Dot colored unless NO_COLOR.
+
+    `ansi` arg kept for picker.py backwards-compat (it used to pass the color
+    in); now ignored because the color is looked up from BADGE_DOT_ANSI.
+    """
+    plain = f"● {_source_short(source)}"
+    padded = pad_display(plain, COL_SOURCE)
     if _no_color():
         return padded
-    return f"{ansi}{padded}{ANSI_RESET}"
+    color = BADGE_DOT_ANSI.get(source, "")
+    if not color:
+        return padded
+    return padded.replace("●", f"{color}●{ANSI_RESET}", 1)
 
 
-# Map source → badge ansi. Kept here so renderer doesn't import Provider classes.
-BADGE_ANSI = {
-    "claude-code": "\x1b[32m",  # green
-    "codex": "\x1b[36m",        # cyan
-}
-
-
-FIRST_PROMPT_WIDTH = 78
-AUX_WIDTH = 46
+def _accent(s: str) -> str:
+    if _no_color():
+        return s
+    return f"{ACCENT_PINK_ANSI}{s}{ANSI_RESET}"
 
 
 def _fmt_last_short(ts: str | None) -> str:
-    """'MM-DD HH:MM:SS' form used in the index table."""
-    formatted = fmt_ts(ts, include_year=False)
-    return formatted if formatted != "?" else "?"
+    """Full `YYYY-MM-DD HH:MM:SS`. (Name kept for picker.py compatibility.)"""
+    return fmt_ts(ts, include_year=True)
+
+
+def _row_cells(s: Session) -> tuple[str, str, str, str, str, str]:
+    """Six visible columns for one session row.
+
+    Cells are already padded/trimmed to column widths so `render_index` and
+    `picker._build_fzf_line` can join them with single-space separators.
+    """
+    time_cell = pad_display(_fmt_last_short(s.last_ts), COL_TIME)
+    src_cell = _badge(s.source)
+    proj_cell = pad_display(trim_display(s.project_label, COL_PROJECT), COL_PROJECT)
+    tok_total = s.tokens.input if s.tokens else 0
+    tok_cell = f"{fmt_tokens(tok_total):>{COL_TOKENS}}"
+    summary_cell = pad_display(trim_display(s.first_prompt or "", COL_SUMMARY), COL_SUMMARY)
+    title_cell = trim_display(s.title or s.subtitle or "", COL_TITLE)
+    return time_cell, src_cell, proj_cell, tok_cell, summary_cell, title_cell
+
+
+def header_line() -> str:
+    """Column header line — same widths as `_row_cells`."""
+    return (
+        pad_display("TIME (LOCAL)", COL_TIME)
+        + " " + pad_display("SOURCE", COL_SOURCE)
+        + " " + pad_display("PROJECT", COL_PROJECT)
+        + " " + f"{'TOKENS':>{COL_TOKENS}}"
+        + " " + pad_display("SUMMARY", COL_SUMMARY)
+        + " " + "TITLE"
+    )
 
 
 def render_index(sessions: list[Session]) -> str:
-    """Compact one-line-per-session table with [cc]/[codex] badge."""
+    """Compact one-line-per-session table."""
     if not sessions:
         return "(no sessions)"
-    out: list[str] = []
-    out.append(
-        f"{'last_activity':<17} {'src':<7} {'project':<25} "
-        f"{'mk':<3} {'tokens':>9}  {'first prompt'}"
-    )
-    out.append("─" * 140)
+    head = header_line()
+    out: list[str] = [head, "─" * display_width(head)]
     for s in sessions:
-        last = pad_display(_fmt_last_short(s.last_ts), 17)
-        badge = _badge(s.source, BADGE_ANSI.get(s.source, ""))
-        proj = pad_display(trim_display(s.project_label, 25), 25)
-        msgs = s.asst_count + (len(s.prompts) if s.prompts else 0)
-        markers = f"{volume_marker(msgs)}  "
-        tok_total = s.tokens.input if s.tokens else 0
-        tok_col = f"{fmt_tokens(tok_total):>9}"
-        first = trim_display(s.first_prompt or "", FIRST_PROMPT_WIDTH)
-        first_padded = pad_display(first, FIRST_PROMPT_WIDTH)
-        aux = trim_display(s.title or s.subtitle or "", AUX_WIDTH) if (s.title or s.subtitle) else ""
-        label = f"{first_padded}  {aux}" if aux else first_padded
-        out.append(f"{last} {badge} {proj} {markers} {tok_col}  {label}")
+        out.append(" ".join(_row_cells(s)))
     return "\n".join(out)
 
 
-def render_full_box(s: Session) -> str:
-    """Single-session detail box (used as fzf preview)."""
-    width = 72
-    bar = "─" * width
-    lines = [f"┌{bar}"]
-    lines.append(f"│ source:         [{s.source}]")
-    lines.append(f"│ 📁 project:     {s.project_label}")
-    lines.append(f"│ session id:     {s.session_id}")
-    lines.append(f"│ started:        {fmt_ts(s.first_ts)}")
-    lines.append(f"│ last activity:  {fmt_ts(s.last_ts)}")
-    lines.append(f"│ duration:       {fmt_duration(s.first_ts, s.last_ts)}")
-    lines.append(f"│ cwd:            {s.cwd or '(none)'}")
-    lines.append(f"│ prompts:        {len(s.prompts)} user / {s.asst_count} assistant")
+# Detail box geometry. fzf preview window wraps if narrower; at ~114 cols
+# total (52 + 2 + 60) we fit on standard 120-col terminals. Wider terminals
+# get extra slack from --preview-window=wrap.
+DETAIL_LEFT_W = 52
+DETAIL_RIGHT_W = 60
+DETAIL_SEP = "  "
+
+
+def _detail_meta_lines(s: Session) -> list[str]:
+    """Left-pane lines (key:value metadata), padded to DETAIL_LEFT_W."""
+    KEY_W = 13
+    VAL_W = DETAIL_LEFT_W - KEY_W - 2  # 2 for ": "
+
+    def kv(key: str, value: str) -> str:
+        return pad_display(f"{key:<{KEY_W}}: {trim_display(value, VAL_W)}", DETAIL_LEFT_W)
+
+    out: list[str] = []
+    out.append(kv("source", _source_short(s.source)))
+    out.append(kv("project", s.project_label))
+    out.append(kv("session id", s.session_id))
+    out.append(kv("started", fmt_ts(s.first_ts)))
+    out.append(kv("last activity", fmt_ts(s.last_ts)))
+    out.append(kv("duration", fmt_duration(s.first_ts, s.last_ts)))
+    out.append(kv("cwd", s.cwd or "(none)"))
+    out.append(kv("prompts", f"{len(s.prompts)} user / {s.asst_count} assistant"))
     if s.title:
-        lines.append(f"│ title:          {s.title}")
+        out.append(kv("title", s.title))
     if s.subtitle:
-        lines.append(f"│ context:        {s.subtitle}")
+        out.append(kv("context", s.subtitle))
     if s.tokens and s.tokens.turns > 0:
         total_in = s.tokens.input
         cache_hit = round(s.tokens.cache_read / total_in * 100) if total_in > 0 else 0
         avg_in = total_in // s.tokens.turns if s.tokens.turns else 0
-        lines.append(f"│ ── tokens ──")
-        lines.append(f"│ input:          {total_in:>10,}    (cache hit {cache_hit}%)")
-        lines.append(f"│ output:         {s.tokens.output:>10,}")
-        lines.append(
-            f"│ cache:          {fmt_tokens(s.tokens.cache_read)} read / "
-            f"{fmt_tokens(s.tokens.cache_create)} created"
-        )
-        lines.append(f"│ avg input/turn: {avg_in:>10,}")
-    lines.append(f"├{bar}")
-    lines.append("│ opening prompts")
-    opening_slice = s.prompts[:3]
+        out.append(pad_display("tokens─", DETAIL_LEFT_W))
+        out.append(kv("  input", f"{total_in:>10,} (hit {cache_hit}%)"))
+        out.append(kv("  output", f"{s.tokens.output:>10,}"))
+        out.append(kv("  total", f"{total_in + s.tokens.output:>10,}"))
+        out.append(kv("  avg in/turn", f"{avg_in:>10,}"))
+    return out
+
+
+def _detail_prompt_lines(s: Session) -> list[str]:
+    """Right-pane lines (opening + last prompts). Wrapped to DETAIL_RIGHT_W.
+
+    May embed ANSI color escapes on the section labels — callers must not
+    pad these lines (display_width can't see escapes). Right pane is the
+    last column on each row, so no padding needed.
+    """
+    out: list[str] = []
+    out.append(_accent("opening prompts"))
+    opening_slice = s.prompts[:5]
     for i, (_ts, text) in enumerate(opening_slice, 1):
-        lines.append(f"│  [{i}] {trim(text, 350)}")
+        body = f"[{i}] {trim(text, 400)}"
+        out.extend(wrap_display(body, DETAIL_RIGHT_W))
+
     opening_ids = {id(p) for p in opening_slice}
-    last_two = [p for p in s.prompts[-2:] if id(p) not in opening_ids]
+    last_two = [p for p in s.prompts[-5:] if id(p) not in opening_ids][-5:]
     if last_two:
-        lines.append("│")
-        lines.append("│ last prompts")
+        out.append("")
+        out.append(_accent("last prompts"))
         for i, (_ts, text) in enumerate(last_two, 1):
-            lines.append(f"│  [{i}] {trim(text, 350)}")
-    lines.append(f"└{bar}")
-    return "\n".join(lines)
+            body = f"[{i}] {trim(text, 400)}"
+            out.extend(wrap_display(body, DETAIL_RIGHT_W))
+    return out
+
+
+def render_full_box(s: Session) -> str:
+    """Single-session 2-column detail (used as fzf preview)."""
+    left = _detail_meta_lines(s)
+    right = _detail_prompt_lines(s)
+    n = max(len(left), len(right))
+    while len(left) < n:
+        left.append(" " * DETAIL_LEFT_W)
+    while len(right) < n:
+        right.append("")
+    return "\n".join(L + DETAIL_SEP + R for L, R in zip(left, right))
 
 
 def render_json(sessions: list[Session]) -> str:
