@@ -29,14 +29,17 @@ ANSI_RESET = "\x1b[0m"
 # Column widths — single source of truth. `header_line()` and `_row_cells()`
 # both consume these so changing one place keeps header/row alignment.
 COL_TIME = 19      # `YYYY-MM-DD HH:MM:SS`
-COL_SOURCE = 9     # `● claude` / `● codex` plus right-pad
+COL_SOURCE = 8     # `claude` (6) / `codex` (5) plus trailing pad
 COL_PROJECT = 16
 COL_TOKENS = 7
 COL_SUMMARY = 48
 COL_TITLE = 30
 
-# Dot color per source. Body of the badge stays default-color so the eye
-# lands on the dot, not the word.
+# Per-source color applied to the source word itself. Earlier revisions
+# prefixed a `●` bullet but its display width is Ambiguous in Unicode East
+# Asian Width — fzf's wcwidth measured it narrow while our padding assumed
+# wide, throwing every downstream column 1 col out of alignment. With the
+# bullet gone, the SOURCE cell is pure ASCII and widths match everywhere.
 BADGE_DOT_ANSI = {
     "claude-code": "\x1b[32m",  # green
     "codex": "\x1b[36m",        # cyan
@@ -60,19 +63,20 @@ def _source_short(source: str) -> str:
 
 
 def _badge(source: str, ansi: str = "") -> str:
-    """`● claude` style, padded to COL_SOURCE. Dot colored unless NO_COLOR.
+    """Colored source label (`claude` / `codex`), padded to COL_SOURCE.
 
-    `ansi` arg kept for picker.py backwards-compat (it used to pass the color
-    in); now ignored because the color is looked up from BADGE_DOT_ANSI.
+    Color wraps the word — trailing padding stays default-colored so the
+    selection bar doesn't pick up a phantom colored tail. `ansi` arg kept
+    for backwards-compat; color is looked up from BADGE_DOT_ANSI now.
     """
-    plain = f"● {_source_short(source)}"
-    padded = pad_display(plain, COL_SOURCE)
+    name = _source_short(source)
+    padded = pad_display(name, COL_SOURCE)
     if _no_color():
         return padded
     color = BADGE_DOT_ANSI.get(source, "")
     if not color:
         return padded
-    return padded.replace("●", f"{color}●{ANSI_RESET}", 1)
+    return padded.replace(name, f"{color}{name}{ANSI_RESET}", 1)
 
 
 def _accent(s: str) -> str:
@@ -135,7 +139,7 @@ DETAIL_SEP = "  "
 
 def _detail_meta_lines(s: Session) -> list[str]:
     """Left-pane lines (key:value metadata), padded to DETAIL_LEFT_W."""
-    KEY_W = 13
+    KEY_W = 14
     VAL_W = DETAIL_LEFT_W - KEY_W - 2  # 2 for ": "
 
     def kv(key: str, value: str) -> str:
@@ -156,25 +160,42 @@ def _detail_meta_lines(s: Session) -> list[str]:
         out.append(kv("context", s.subtitle))
     if s.tokens and s.tokens.turns > 0:
         total_in = s.tokens.input
-        cache_hit = round(s.tokens.cache_read / total_in * 100) if total_in > 0 else 0
+        cache_hit_pct = (s.tokens.cache_read / total_in * 100) if total_in > 0 else 0
         avg_in = total_in // s.tokens.turns if s.tokens.turns else 0
-        out.append(pad_display("tokens─", DETAIL_LEFT_W))
-        out.append(kv("  input", f"{total_in:>10,} (hit {cache_hit}%)"))
+        # Spacer line between meta block and tokens block — quieter than a
+        # dash rule on the left, matches the breathing room in the target.
+        out.append(" " * DETAIL_LEFT_W)
+        out.append(kv("tokens", ""))
+        out.append(kv("  input", f"{total_in:>10,} (hit {cache_hit_pct:.1f}%)"))
         out.append(kv("  output", f"{s.tokens.output:>10,}"))
         out.append(kv("  total", f"{total_in + s.tokens.output:>10,}"))
-        out.append(kv("  avg in/turn", f"{avg_in:>10,}"))
+        out.append(kv("  avg input/turn", f"{avg_in:>10,}"))
     return out
+
+
+def _section_header(label: str) -> str:
+    """`opening prompts ────────` style — label + trailing dash rule.
+
+    Total visible width is DETAIL_RIGHT_W. The label is accent-colored
+    (pink) unless NO_COLOR is set. Dash rule is plain so the eye reads
+    the label first, then the divider.
+    """
+    rule_len = DETAIL_RIGHT_W - display_width(label) - 1  # 1 for the space
+    if rule_len < 3:
+        rule_len = 3
+    return f"{_accent(label)} {'─' * rule_len}"
 
 
 def _detail_prompt_lines(s: Session) -> list[str]:
     """Right-pane lines (opening + last prompts). Wrapped to DETAIL_RIGHT_W.
 
-    May embed ANSI color escapes on the section labels — callers must not
+    May embed ANSI color escapes on the section headers — callers must not
     pad these lines (display_width can't see escapes). Right pane is the
     last column on each row, so no padding needed.
     """
     out: list[str] = []
-    out.append(_accent("opening prompts"))
+    out.append(_section_header("opening prompts"))
+    out.append("")
     opening_slice = s.prompts[:5]
     for i, (_ts, text) in enumerate(opening_slice, 1):
         body = f"[{i}] {trim(text, 400)}"
@@ -184,7 +205,8 @@ def _detail_prompt_lines(s: Session) -> list[str]:
     last_two = [p for p in s.prompts[-5:] if id(p) not in opening_ids][-5:]
     if last_two:
         out.append("")
-        out.append(_accent("last prompts"))
+        out.append(_section_header("last prompts"))
+        out.append("")
         for i, (_ts, text) in enumerate(last_two, 1):
             body = f"[{i}] {trim(text, 400)}"
             out.extend(wrap_display(body, DETAIL_RIGHT_W))

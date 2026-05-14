@@ -95,7 +95,8 @@ def test_row_cells_cjk_summary_truncation():
 # ─── Badge colors ────────────────────────────────────────────────────────────
 
 
-def test_badge_dot_colored_by_default(monkeypatch):
+def test_badge_word_colored_by_default(monkeypatch):
+    """Color wraps the word itself (no bullet char)."""
     monkeypatch.delenv("NO_COLOR", raising=False)
     _, src_c, *_ = _row_cells(_sample(source="claude-code"))
     assert "\x1b[32m" in src_c  # green
@@ -116,16 +117,17 @@ def test_no_color_strips_ansi(monkeypatch):
     assert "\x1b[" not in box
 
 
-# ─── Volume marker / brackets removal ────────────────────────────────────────
+# ─── Legacy badge styles must stay gone ──────────────────────────────────────
 
 
-def test_no_bracket_badge_in_row():
-    """Old `[cc]` / `[codex]` brackets must be gone."""
+def test_no_bracket_or_bullet_badge_in_row():
+    """Old [cc]/[codex] brackets AND the ● bullet must be gone — bullet
+    re-introduces wide-char ambiguity that misaligned downstream columns."""
     _, src_c, *_ = _row_cells(_sample(source="claude-code"))
     plain = _strip_ansi(src_c)
     assert "[cc]" not in plain
     assert "[claude-code]" not in plain
-    assert "●" in plain
+    assert "●" not in plain
     assert "claude" in plain
 
 

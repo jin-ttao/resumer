@@ -110,17 +110,30 @@ def pick(sessions: list[Session]) -> Session | None:
             f"{shlex.quote(script_path)} --preview-for "
             f"{shlex.quote(preview_dir)} {{7}} {{8}}"
         )
-        # Header is 2 lines: column titles + lowercase keybind footer.
-        # Selected-row colors approximate a wine/pink bar (xterm 88 bg, white fg).
-        header_text = f"{header_line()}\n↑/↓ navigate · enter select · esc cancel"
+        # Layout strategy:
+        # - --header (column titles) sits at the top (above prompt) via
+        #   --header-first.
+        # - --prompt is empty; the search-input line is unobtrusive.
+        # - Keybind hint lives in the preview-window's top border as a
+        #   label — that puts it between the list and the detail pane,
+        #   which is the target arrangement. fzf can't render an arbitrary
+        #   footer row, but border labels are close enough visually.
+        keybind_label = " ↑/↓ navigate · enter select · esc cancel "
         fzf_args = [
             "fzf",
             "--ansi",
             "--delimiter=\t",
+            # fzf renders \t as 8-space tab-stops by default, which inflates
+            # the gap between cells and breaks our explicit pad_display
+            # alignment. Force tab → 1 space so the padding we baked in
+            # actually matches what fzf draws.
+            "--tabstop=1",
             "--with-nth=1,2,3,4,5,6",  # hide source(7), sid(8), cwd(9)
             "--preview", preview_cmd,
             "--preview-window=down:60%:wrap:border-top",
-            "--header", header_text,
+            "--preview-label", keybind_label,
+            "--preview-label-pos=2",  # 2 = top-left of the border
+            "--header", header_line(),
             "--header-first",
             "--layout=reverse",
             "--bind", "ctrl-s:toggle-sort",
