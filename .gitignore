@@ -5,6 +5,7 @@ __pycache__/
 tests/output/
 .claude/review-logs/
 # docs/ is tracked (contains demo.gif for README) — don't ignore it.
+docs/visual/picker-list-big.gif
 
 # Python packaging artifacts
 *.egg-info/
