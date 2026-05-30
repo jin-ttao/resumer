@@ -10,10 +10,11 @@ from typing import Iterator
 from resumer.providers.base import Provider
 from resumer.providers.claude_code import ClaudeCodeProvider
 from resumer.providers.codex import CodexProvider
+from resumer.providers.gemini import GeminiProvider
 from resumer.session import Filters, Session
 
 
-_all_providers: list[Provider] = [ClaudeCodeProvider(), CodexProvider()]
+_all_providers: list[Provider] = [ClaudeCodeProvider(), CodexProvider(), GeminiProvider()]
 
 
 def all_providers() -> list[Provider]:
