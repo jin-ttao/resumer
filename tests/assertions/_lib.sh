@@ -45,6 +45,15 @@ tmux_enable_codex_mock() {
   tmux_export "$session" CODEX_MOCK_LOG "$CODEX_LOG"
 }
 
+tmux_enable_gemini_mock() {
+  # Usage: tmux_enable_gemini_mock SESSION — sets GEMINI_MOCK_LOG to a fresh file
+  # and returns the log path via the global GEMINI_LOG var.
+  local session="$1"
+  GEMINI_LOG="$OUTPUT_DIR/${session}-gemini.log"
+  rm -f "$GEMINI_LOG"
+  tmux_export "$session" GEMINI_MOCK_LOG "$GEMINI_LOG"
+}
+
 tmux_use_fixtures() {
   # Usage: tmux_use_fixtures SESSION — points providers at tests/fixtures so
   # QA runs off deterministic synthetic data instead of the user's real
@@ -63,6 +72,18 @@ tmux_use_fixtures() {
   # Target dir for scenario 12 (stale-cwd regression). Encoded form of this
   # path matches the fixture's parent dir name under tests/fixtures/claude-code/.
   mkdir -p "/tmp/resumer-fixtures/obsidian path with space/vault"
+}
+
+tmux_use_gemini_fixtures() {
+  # Usage: tmux_use_gemini_fixtures SESSION — points gemini provider at test fixtures.
+  local session="$1"
+  tmux_export "$session" RESUMER_GEMINI_SESSION_ROOT "$FIXTURES_DIR/gemini"
+  tmux_export "$session" RESUMER_GEMINI_INDEX_FILE "$FIXTURES_DIR/gemini/session_index.jsonl"
+  # GeminiProvider.is_available() checks shutil.which(bin); point it at the
+  # mock binary inside tests/mock-bin (which PATH already includes).
+  tmux_export "$session" RESUMER_GEMINI_BIN gemini
+  mkdir -p /tmp/resumer-fixtures/gemini-project-alpha \
+           /tmp/resumer-fixtures/gemini-project-beta
 }
 
 tmux_run() {
