@@ -2,6 +2,8 @@
 
 > Browse & resume your Claude Code / Codex sessions — one picker, zero dependencies.
 
+![resumer demo](docs/demo.gif)
+
 A single static binary. No Python, no fzf, no setup. Open the picker, see every
 recent AI-CLI session across providers with a full preview, hit Enter, and you're
 back in the conversation.
