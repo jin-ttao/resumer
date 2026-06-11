@@ -47,10 +47,17 @@ curl -fsSL -o "$tmp/$archive" "$base/$archive"
 curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt"
 
 cd "$tmp"
+# Extract the expected line first: a grep miss inside a pipe would otherwise
+# feed the checker empty stdin and could pass vacuously (sh has no pipefail).
+expected="$(grep " $archive\$" checksums.txt || true)"
+if [ -z "$expected" ]; then
+  echo "error: $archive not found in checksums.txt — aborting" >&2
+  exit 1
+fi
 if command -v sha256sum >/dev/null 2>&1; then
-  grep " $archive\$" checksums.txt | sha256sum -c - >/dev/null
+  printf '%s\n' "$expected" | sha256sum -c - >/dev/null
 else
-  grep " $archive\$" checksums.txt | shasum -a 256 -c - >/dev/null
+  printf '%s\n' "$expected" | shasum -a 256 -c - >/dev/null
 fi
 echo "Checksum OK."
 

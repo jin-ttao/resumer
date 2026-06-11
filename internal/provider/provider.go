@@ -70,22 +70,30 @@ func AvailableSourceNames() []string {
 // SortSessions orders by (LastTS, Source) descending — string comparison,
 // matching the Python registry's sort for output parity — with Path as a
 // final tiebreak for deterministic ordering on identical timestamps.
+// Equal elements must compare false in both directions (strict weak
+// ordering), or sort.SliceStable's behavior is undefined.
 func SortSessions(out []session.Session, ascending bool) {
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
-		less := false
-		switch {
-		case a.LastTS != b.LastTS:
-			less = a.LastTS > b.LastTS
-		case a.Source != b.Source:
-			less = a.Source > b.Source
-		default:
-			less = a.Path < b.Path
+		if a.LastTS != b.LastTS {
+			if ascending {
+				return a.LastTS < b.LastTS
+			}
+			return a.LastTS > b.LastTS
 		}
-		if ascending {
-			return !less
+		if a.Source != b.Source {
+			if ascending {
+				return a.Source < b.Source
+			}
+			return a.Source > b.Source
 		}
-		return less
+		if a.Path != b.Path {
+			if ascending {
+				return a.Path > b.Path
+			}
+			return a.Path < b.Path
+		}
+		return false
 	})
 }
 

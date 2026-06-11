@@ -303,6 +303,40 @@ func TestPickerCancelLeavesNoLog(t *testing.T) {
 	}
 }
 
+// --- sort toggle + source cycle interactions ---
+
+func TestSortToggleAndSourceCycle(t *testing.T) {
+	materializeFixtureCwds(t)
+	logPath := filepath.Join(t.TempDir(), "claude-mock.log")
+	env := append(fixtureEnv(t), "CLAUDE_MOCK_LOG="+logPath)
+
+	r := startPicker(t, env, "--all")
+	r.waitFor(t, "[codex]", 5*time.Second)
+
+	// ctrl-s twice (asc → desc again), tab through sources and back to all.
+	r.send("\x13") // ctrl+s
+	time.Sleep(200 * time.Millisecond)
+	r.send("\x13")
+	time.Sleep(200 * time.Millisecond)
+	r.send("\t") // → claude-code only
+	time.Sleep(200 * time.Millisecond)
+	r.waitFor(t, "source: claude-code", 3*time.Second)
+	r.send("\t") // → codex only
+	time.Sleep(200 * time.Millisecond)
+	r.waitFor(t, "source: codex", 3*time.Second)
+	r.send("\t") // → back to all
+	time.Sleep(300 * time.Millisecond)
+
+	// Toggling must leave the picker functional and must not exec anything;
+	// exec behavior itself is covered by the dedicated tests above.
+	r.send("\x1b") // cancel
+	r.waitExit(t, 5*time.Second)
+
+	if _, err := os.Stat(logPath); err == nil {
+		t.Error("sort/source toggling must not trigger an exec")
+	}
+}
+
 // --- codex selection end-to-end ---
 
 func TestCodexSelectExec(t *testing.T) {
