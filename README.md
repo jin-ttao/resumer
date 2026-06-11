@@ -1,12 +1,30 @@
 # resumer
 
-> Browse & resume your Claude Code / Codex sessions with fzf.
+> Browse & resume your Claude Code / Codex sessions — one picker, zero dependencies.
+
+A single static binary. No Python, no fzf, no setup. Open the picker, see every
+recent AI-CLI session across providers with a full preview, hit Enter, and you're
+back in the conversation.
+
+## Install
 
 ```bash
 brew install jin-ttao/tap/resumer
-# or
-pipx install resumer
 ```
+
+or one line without Homebrew:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jin-ttao/resumer/main/install.sh | sh
+```
+
+or with Go:
+
+```bash
+go install github.com/jin-ttao/resumer@latest
+```
+
+macOS & Linux (arm64/amd64). Windows is on the roadmap.
 
 ## Usage
 
@@ -16,7 +34,24 @@ resumer list         # plain list, last 7 days
 resumer --help       # everything else
 ```
 
-Requires Python 3.10+, [fzf](https://github.com/junegunn/fzf), and macOS or Linux (Windows planned).
+Picker keys: `↑↓` browse · `/` filter · `tab` cycle source · `ctrl-s` toggle sort ·
+`enter` resume · `esc` cancel.
+
+Useful flags (both picker and `list`): `--days N`, `--date YYYY-MM-DD`, `--all`,
+`--project foo`, `--source claude-code|codex`, `--limit N`. List mode adds
+`--json` and `--full [N]`.
+
+## Providers
+
+| Provider | Session source | Resume command |
+|---|---|---|
+| Claude Code | `~/.claude/projects/**/*.jsonl` | `claude --resume <id>` |
+| Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` | `codex resume <id>` |
+| Gemini CLI | roadmap | |
+
+resumer also fixes a real-world annoyance: when a session's stored cwd has gone
+stale (iCloud/Obsidian path drift), it re-derives the correct project directory
+from the session file location, so `claude --resume` actually works.
 
 <details>
 <summary>Development</summary>
@@ -24,11 +59,18 @@ Requires Python 3.10+, [fzf](https://github.com/junegunn/fzf), and macOS or Linu
 ```bash
 git clone https://github.com/jin-ttao/resumer.git
 cd resumer
-pip install -e .
-./tests/run-qa.sh --no-vhs   # tmux + fzf required
+go build -o resumer .
+./tests/run-qa.sh --no-vhs   # go vet + full test suite (no external deps)
 ```
 
-Roadmap: Gemini provider. CI/CD release automation. Windows support.
+The test suite includes PTY-driven integration tests that exercise the real
+TUI end to end (picker → filter → select → exec) against fixtures in
+`tests/fixtures/`.
+
+Releases are automated: pushing a `v*` tag builds binaries via goreleaser and
+updates the Homebrew tap.
+
+Roadmap: Gemini provider · Windows support.
 
 </details>
 
