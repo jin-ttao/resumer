@@ -1,12 +1,9 @@
-__pycache__/
-*.pyc
-*.pyo
 .DS_Store
 tests/output/
 .claude/review-logs/
+.claude/work-reports/
 # docs/ is tracked (contains demo.gif for README) — don't ignore it.
 
-# Python packaging artifacts
-*.egg-info/
-build/
+# Go build artifacts
+/resumer
 dist/
