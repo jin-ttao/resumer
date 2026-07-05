@@ -1,0 +1,2 @@
+#!/bin/sh
+exec resumer resume --source gemini "$@"
