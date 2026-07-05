@@ -1,0 +1,8 @@
+#!/bin/sh
+if [ "$1" = "list" ]; then
+    echo '[{"session_id":"gem-1111-2222","title":"Gemini test session","updated_at":"2026-04-15T12:00:00Z"}]'
+elif [ "$1" = "resume" ]; then
+    exit 0
+else
+    exit 1
+fi
