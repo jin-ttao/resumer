@@ -1,0 +1,6 @@
+{"sessionId":"gemini-session-001","startTime":"2026-10-01T10:00:00Z","lastUpdated":"2026-10-01T12:30:00Z"}
+{"type":"user","content":[{"text":"Hello Gemini"}],"timestamp":"2026-10-01T10:00:00Z"}
+{"type":"gemini","content":[{"text":"Hello! How can I help you?"}],"timestamp":"2026-10-01T10:00:05Z"}
+{"type":"user","content":[{"text":"What is the capital of France?"}],"timestamp":"2026-10-01T10:05:00Z"}
+{"type":"gemini","content":[{"text":"The capital of France is Paris."}],"timestamp":"2026-10-01T10:05:02Z"}
+{"type":"user","content":[{"text":"Thank you"}],"timestamp":"2026-10-01T12:30:00Z"}

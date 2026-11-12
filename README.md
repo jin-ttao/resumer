@@ -49,7 +49,7 @@ Useful flags (both picker and `list`): `--days N`, `--date YYYY-MM-DD`, `--all`,
 |---|---|---|
 | Claude Code | `~/.claude/projects/**/*.jsonl` | `claude --resume <id>` |
 | Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` | `codex resume <id>` |
-| Gemini CLI | roadmap | |
+| Gemini CLI | `~/.gemini/tmp/<hash>/chats/session-*.jsonl` | `gemini --resume <id>` |
 
 resumer also fixes a real-world annoyance: when a session's stored cwd has gone
 stale (iCloud/Obsidian path drift), it re-derives the correct project directory
@@ -72,7 +72,7 @@ TUI end to end (picker → filter → select → exec) against fixtures in
 Releases are automated: pushing a `v*` tag builds binaries via goreleaser and
 updates the Homebrew tap.
 
-Roadmap: Gemini provider · Windows support.
+Roadmap: Windows support.
 
 </details>
 
